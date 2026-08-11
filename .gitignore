@@ -1,0 +1,7 @@
+# Archivos que NO se suben al repositorio
+__pycache__/
+*.pyc
+.deps_instalado
+data/jobs_cache.json
+generated/
+digest.zip
