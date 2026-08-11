@@ -1,0 +1,44 @@
+name: Digesto diario de ofertas
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -q requests python-docx
+
+      - name: Ejecutar bot (buscar → matchear → preparar → notificar)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python bot_daily.py
+
+      - name: Guardar estado (ofertas ya vistas)
+        run: |
+          git config user.name "Job Hunter Bot"
+          git config user.email "jobhunter-bot@users.noreply.github.com"
+          git add data/seen.json
+          if git diff --cached --quiet; then
+            echo "Sin cambios en el estado"
+          else
+            git commit -m "Actualizar ofertas vistas [bot]"
+            git push
+          fi
