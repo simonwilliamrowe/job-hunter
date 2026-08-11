@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/jobs_cache.json
+data/seen.json
+generated/
+digest.zip
