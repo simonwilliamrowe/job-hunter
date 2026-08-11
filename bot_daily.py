@@ -13,6 +13,8 @@ import sys
 import zipfile
 from datetime import date
 
+os.makedirs("data", exist_ok=True)  # la carpeta data/ siempre existe
+
 import requests
 
 import cvgen
@@ -91,7 +93,31 @@ def _est_minutes(persona_id):
     return p.get("est_minutes", 6)
 
 
+def _notify_error(err_text):
+    """Si hay secrets, manda el error a Telegram para que el usuario lo vea."""
+    if TOKEN and CHAT_ID:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                data={"chat_id": CHAT_ID, "text": f"⚠️ Job Hunter falló hoy:\n{err_text[:3500]}"},
+                timeout=60,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main():
+    try:
+        return _main()
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        err = traceback.format_exc()
+        print(err)
+        _notify_error(err)
+        return 1
+
+
+def _main():
     print("🦅 Job Hunter — bot diario v2")
     profile = load_profile()
     keywords_ok = bool(profile.get("skills"))

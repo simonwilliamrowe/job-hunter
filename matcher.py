@@ -85,12 +85,27 @@ def _kw_count(text, kws, title_text="", title_weight=3.0, cap=10.0):
     return min(1.0, cnt / cap)
 
 
+SPANISH_MARKERS = {
+    "el", "la", "los", "las", "de", "del", "para", "con", "por", "que", "como",
+    "trabajo", "trabajar", "empresa", "experiencia", "requisitos", "salario",
+    "años", "habilidades", "equipo", "remoto", "puesto", "candidato", "aplicar",
+    "vacante", "nuestra", "nuestro", "ser", "estar", "tener", "hacer", "más",
+    "menos", "entre", "sobre", "durante", "después", "antes", "también", "muy",
+    "bueno", "buena", "gran", "grande", "persona", "personas", "idioma",
+}
+
+
 def is_english(desc):
-    words = EN_RE.findall((desc or "").lower())
+    """Detecta si el anuncio está en inglés. Si no hay señales claras de
+    español, asume inglés (los anuncios remotos globales son en inglés)."""
+    low = (desc or "").lower()
+    words = EN_RE.findall(low)
     if not words:
         return True
-    hits = sum(1 for w in words if w in ENGLISH_WORDS)
-    return hits >= max(6, len(words) * 0.06)
+    es_hits = sum(1 for w in words if w in SPANISH_MARKERS)
+    if es_hits >= 4:
+        return False
+    return True
 
 
 def parse_salary(raw):
@@ -157,36 +172,229 @@ def latam_score(job):
     return 1.0
 
 
+
+# ---------------------------------------------------------------------------
+# tracks ampliados: voice/audio, IA content, administrativo básico
+# ---------------------------------------------------------------------------
+
+VOICE_KW = ["voice", "voice over", "voiceover", "voice actor", "voice recording",
+            "voice recording for ai", "voice data", "narration", "narrator",
+            "audiobook", "audiobooks", "tts", "text to speech", "speech",
+            "read", "reading", "storytelling", "audio content", "podcast",
+            "dubbing", "subtitl", "transcription", "transcriber", "caption",
+            "annotation", "annotator", "data labeling", "data labelling",
+            "training data", "prompt", "prompting", "evaluation", "evaluator",
+            "audio", "sound", "recording", "voice training", "vocal"]
+
+AI_CONTENT_KW = ["ai image", "ai video", "image generation", "image editing",
+                 "video editing", "video generation", "generative ai", "midjourney",
+                 "stable diffusion", "ai tools", "content creation", "content creator",
+                 "prompt engineering", "prompt engineer", "chatgpt", "claude",
+                 "copywriting", "script", "scripts", "storyboard", "visual content",
+                 "creative content", "shorts", "youtube", "reels", "tiktok",
+                 "photography", "photo editing", "creative", "design", "graphic",
+                 "multimedia", "video", "image", "creative ai"]
+
+ADMIN_KW = ["data entry", "administrative assistant", "admin assistant", "virtual assistant",
+            "personal assistant", "office assistant", "scheduling", "calendar management",
+            "inbox management", "email management", "bookkeeping", "invoicing",
+            "record keeping", "filing", "spreadsheet", "excel", "google sheets",
+            "customer records", "order processing", "back office", "documentation",
+            "reception", "secretary", "administrative support", "data management",
+            "database", "reporting", "transcription", "typing", "data processing"]
+
+
 # ---------------------------------------------------------------------------
 # carriles con pesos (suman 100)
 # ---------------------------------------------------------------------------
 
+PRIORITY_HANDICAP = 12  # puntos de ventaja para tracks principales (crypto/fintech/support)
+CREATIVE_ROLE_BLOCK = re.compile(
+    r"\b(video editor|video editing|video editor specialist|video editing specialist|"
+    r"graphic designer|graphic design|motion designer|motion graphics|ux designer|"
+    r"ui designer|product designer|brand designer|illustrator|3d artist|3d designer|"
+    r"sound designer|audio engineer|video producer|video production|editor for video|"
+    r"video post[- ]production)\b", re.I)
+
+# PAGO INESTABLE (lo que NO sirve): por proyecto suelto, gigs de una vez,
+# comisión pura, por tarea. "Freelance" o "contractor" SOLOS no bloquean:
+# un contrato freelance/contractor con pago mensual estable es aceptable.
+PER_PROJECT_RE = re.compile(
+    r"\b(per project|project[- ]based|per gig|one[- ]time|per task|piece work|"
+    r"100% commission|commission[- ]only|paid per (project|task|gig|word|page|recording)|"
+    r"pay[- ]per|per assignment|short[- ]term gig)\b", re.I)
+HOURLY_RE = re.compile(r"\b(per hour|hourly|per hr|/hr\b|by the hour)\b", re.I)
+# señales POSITIVAS de relación estable (empleo o contrato largo)
+CONTRACT_OK_RE = re.compile(
+    r"\b(contract|contractor|independent contractor|long[- ]term|ongoing|"
+    r"full[- ]time|full time|permanent|monthly (salary|rate|retainer)|fixed monthly|"
+    r"regular (income|work|schedule)|stable|recurring|aut[oó]nomo|contratista)\b", re.I)
+BONUS_RE = re.compile(r"\b(bonus|commission|incentive|ote\b|performance[- ]based)\b", re.I)
+
 TRACKS = {
     "crypto_support": {
-        "label": "Crypto Support", "persona": "crypto_support",
+        "label": "Crypto Support", "persona": "crypto_support", "priority": 1,
         "weights": {"crypto": 22, "support": 20, "english": 10, "remote": 10, "latam": 8,
                     "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
     "crypto_operations": {
-        "label": "Crypto Operations", "persona": "crypto_operations",
+        "label": "Crypto Operations", "persona": "crypto_operations", "priority": 1,
         "weights": {"crypto": 20, "fintech": 14, "support": 8, "english": 10, "remote": 10,
                     "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
     "community": {
-        "label": "Web3 Community", "persona": "community",
+        "label": "Web3 Community", "persona": "community", "priority": 1,
         "weights": {"community": 24, "crypto": 12, "support": 6, "english": 10, "remote": 10,
                     "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
     "junior_research": {
-        "label": "Junior Research", "persona": "junior_research",
+        "label": "Junior Research", "persona": "junior_research", "priority": 1,
         "weights": {"research": 28, "crypto": 14, "english": 10, "remote": 10, "latam": 8,
                     "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
     "customer_support": {
-        "label": "Customer Support", "persona": "customer_support",
+        "label": "Customer Support", "persona": "customer_support", "priority": 1,
         "weights": {"support": 30, "fintech": 10, "english": 12, "remote": 10, "latam": 8,
                     "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
     "operations": {
-        "label": "Operations", "persona": "crypto_operations",
+        "label": "Operations", "persona": "crypto_operations", "priority": 1,
         "weights": {"ops": 22, "fintech": 12, "support": 8, "english": 10, "remote": 10,
                     "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
+    "voice_audio": {
+        "label": "Voice & AI Audio", "persona": "voice_ai", "priority": 2,
+        "weights": {"voice": 32, "english": 12, "spanish": 10, "remote": 10, "latam": 8,
+                    "salary": 12, "seniority": 8, "tools": 4, "support": 4}},
+    "ai_content": {
+        "label": "AI Content / Creative", "persona": "ai_content", "priority": 2,
+        "weights": {"ai_content": 28, "english": 10, "spanish": 8, "remote": 10, "latam": 8,
+                    "salary": 12, "seniority": 8, "tools": 8, "support": 4, "crypto": 4}},
+    "admin_ops": {
+        "label": "Admin / VA Básico", "persona": "admin_ops", "priority": 2,
+        "weights": {"admin": 30, "english": 10, "spanish": 8, "remote": 10, "latam": 8,
+                    "salary": 12, "seniority": 8, "tools": 8, "support": 6}},
 }
+
+# Regla dura: títulos técnicos de ingeniería/desarrollo que NO corresponden
+# al perfil (no defendibles en entrevista). Se marcan IGNORE directo.
+TECH_TITLE_BLOCK = re.compile(
+    r"\b(software|frontend|front-end|backend|back-end|full[- ]?stack|devops|sre|"
+    r"platform|data|machine learning|\bml\b|\bai\b|smart contract|solidity|rust|"
+    r"golang|java|python|react|node|qa|test|ios|android|mobile|security|cloud|"
+    r"embedded|quant|infrastructure|network|php|wordpress|web|blockchain)\b"
+    r".{0,25}\b(engineer|developer|programmer|scientist|architect)\b", re.I)
+
+# Regla dura: senioridad alta sin marca junior -> nunca APPLY
+SENIOR_TITLE = re.compile(
+    r"\b(senior|lead|principal|staff|director|head of|chief)\b", re.I)
+JUNIOR_TITLE = re.compile(
+    r"\b(junior|entry|graduate|trainee|intern|associate)\b", re.I)
+MANAGER_TECH = re.compile(
+    r"\bmanager\b.{0,20}\b(technical|support|operations|team|office|program|"
+    r"project|engineering|department)\b", re.I)
+
+# Regla dura de ubicación: solo remoto GLOBAL (para poder aplicar desde Paraguay)
+REMOTE_WORDS = re.compile(
+    r"\b(remote|worldwide|global|anywhere|distributed|work from home|wfh|"
+    r"100% home|work-at-home)\b", re.I)
+LOCATION_SAFE = re.compile(
+    r"\b(worldwide|global|anywhere|latin america|latam|south america|americas)\b", re.I)
+LOCATION_COUNTRY = re.compile(
+    r"\b(united states|usa|u\.s\.|uk|germany|france|spain|italy|netherlands|"
+    r"poland|portugal|greece|cyprus|czech|canada|philippines|singapore|australia|"
+    r"taiwan|pakistan|brazil|mexico|colombia|argentina|chile|peru|uruguay|india|"
+    r"japan|sweden|norway|denmark|finland|ireland|switzerland|austria|belgium|"
+    r"china|south korea|malaysia|indonesia|thailand|vietnam|turkey|israel|dubai|"
+    r"uae|saudi|qatar|europe|emea|asia|australia|singapore)\b", re.I)
+
+
+def _hard_filters(job, title, text, loc):
+    """Aplica reglas duras. Devuelve (nuevo_score_max, band_forced).
+    band_forced: None (normal), 'IGNORE' o 'REVIEW'."""
+    hay = f"{title} {loc} {text[:800]}"
+    cap = 100
+    # 0) bloquear roles creativos/edición profesionales (no defendibles)
+    if CREATIVE_ROLE_BLOCK.search(title):
+        return 0, "IGNORE"
+    # 1) bloquear títulos de desarrollo/ingeniería
+    if TECH_TITLE_BLOCK.search(title):
+        return 0, "IGNORE"
+    # 2) senioridad alta sin junior: máximo REVIEW
+    if SENIOR_TITLE.search(title) and not JUNIOR_TITLE.search(title):
+        cap = min(cap, 65)
+    # 3) cualquier título con "manager": máximo REVIEW (no defendible)
+    if re.search(r"\bmanager\b", title, re.I):
+        cap = min(cap, 65)
+    # 4) no es remoto en absoluto: IGNORE
+    if not REMOTE_WORDS.search(hay):
+        return 0, "IGNORE"
+    # 5) restricción geográfica (ubicación o descripción): IGNORE directo.
+    #    Solo remoto GLOBAL / LATAM / Sudamérica / Paraguay sirve.
+    if _location_restricted(loc, text, title):
+        return 0, "IGNORE"
+    # pago inestable (por proyecto/gig/comisión pura): nunca verde
+    if PER_PROJECT_RE.search(hay):
+        cap = min(cap, 65)
+    # pago por hora: puede ser contrato estable a tiempo completo, pero no APPLY NOW
+    if HOURLY_RE.search(hay):
+        cap = min(cap, 75)
+    return cap, None
+
+
+# países/regiones que NO incluyen Paraguay (no sirven)
+_COUNTRY_RE = re.compile(
+    r"\b(united states|usa|u\.?s\.?a?\.?|uk|united kingdom|england|europe|eu|emea|"
+    r"canada|australia|asia|apac|india|philippines|brazil|mexico|colombia|argentina|chile|"
+    r"peru|uruguay|germany|france|spain|netherlands|poland|portugal|ireland|sweden|norway|"
+    r"denmark|finland|switzerland|austria|belgium|singapore|japan|south korea|malaysia|"
+    r"indonesia|thailand|vietnam|turkey|israel|dubai|uae|saudi|qatar|new zealand|"
+    r"china|hong kong|taiwan)\b", re.I)
+
+# zonas SEGURAS (Paraguay incluido)
+_SAFE_RE = re.compile(
+    r"\b(worldwide|global|globally|anywhere|around the world|all over the world|"
+    r"latin america|latam|south america|central america|americas)\b", re.I)
+
+# frases de restricción que suelen ir en la descripción
+_RESTRICT_PATTERNS = [
+    r"\b(must|need to|required to|requires|should|have to) (be )?(based|located|resident|"
+    r"domiciled|physically located) (in|within)\b",
+    r"\bbased (in|within)\b",
+    r"\b(must|need to|required to) be (in|within)\b",
+    r"\b(open|available) (only )?to (candidates|applicants) (based|located )?(in|within)\b",
+    r"\bcandidates (must|need|required) (to )?be (based|located) (in|within)\b",
+    r"\b(work authorization|right to work|eligib\w+ to work|authorized to work|"
+    r"permit to work|visa sponsorship) (in|within|required|needed)\b",
+    r"\bresidency (in|within|requirement)\b",
+    r"\b(only|exclusively)\b.{0,25}\b(candidates|applicants|residents|based|located)\b",
+    r"\b(us|usa|uk|eu|europe|canada|australia|germany|france|spain|netherlands|poland|"
+    r"portugal|ireland|sweden|singapore|japan|india|philippines|brazil|mexico|argentina|"
+    r"chile|colombia|peru|uruguay)\b[^.]{0,40}\b(only|exclusively|required)\b",
+]
+
+
+_NO_TILDES = str.maketrans(
+    {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u", "ñ": "n",
+     "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N"})
+
+
+def _loc_norm(s):
+    return (s or "").translate(_NO_TILDES)
+
+
+def _location_restricted(loc, text, title):
+    """True si la oferta NO se puede tomar desde Paraguay/remoto global.
+    El campo de ubicación manda: si dice un país/región sin remoto global,
+    se descarta aunque la descripción mencione 'global'."""
+    loc = _loc_norm(loc or "")
+    # 1) ubicación autoritativa
+    if _COUNTRY_RE.search(loc):
+        return not _SAFE_RE.search(loc)
+    # 2) la descripción puede esconder restricciones
+    hay = f"{_loc_norm(text[:1600])} {_loc_norm(title)}"
+    for pat in _RESTRICT_PATTERNS:
+        m = re.search(pat, hay, re.I)
+        if m:
+            ctx = hay[m.start():m.end() + 60]
+            if _COUNTRY_RE.search(ctx) and not _SAFE_RE.search(ctx):
+                return True
+    return False
+
 
 BANDS = [
     (90, "APPLY NOW", "🔥"),
@@ -198,17 +406,23 @@ BANDS = [
 
 def _component(kind, title, text, parsed, salary_cfg, job):
     if kind == "crypto":
-        return _kw_count(text, CRYPTO_KW, title, 3.0, 10)
+        return _kw_count(text, CRYPTO_KW, title, 3.5, 9)
     if kind == "support":
-        return _kw_count(text, SUPPORT_KW, title, 3.0, 10)
+        return _kw_count(text, SUPPORT_KW, title, 3.5, 9)
     if kind == "community":
-        return _kw_count(text, COMMUNITY_KW, title, 3.0, 8)
+        return _kw_count(text, COMMUNITY_KW, title, 3.5, 8)
     if kind == "research":
-        return _kw_count(text, RESEARCH_KW, title, 3.0, 10)
+        return _kw_count(text, RESEARCH_KW, title, 3.5, 9)
     if kind == "fintech":
-        return _kw_count(text, FINTECH_KW, title, 3.0, 8)
+        return _kw_count(text, FINTECH_KW, title, 3.5, 8)
     if kind == "ops":
-        return _kw_count(text, OPS_KW, title, 3.0, 8)
+        return _kw_count(text, OPS_KW, title, 3.5, 8)
+    if kind == "voice":
+        return _kw_count(text, VOICE_KW, title, 3.5, 9)
+    if kind == "ai_content":
+        return _kw_count(text, AI_CONTENT_KW, title, 3.5, 9)
+    if kind == "admin":
+        return _kw_count(text, ADMIN_KW, title, 3.5, 9)
     if kind == "tools":
         return min(1.0, _kw_count(text, TOOLS_KW, title, 1.0, 4))
     if kind == "english":
@@ -261,9 +475,20 @@ def score_offer(job, profile, personas=None, top_n=None):
             comps[kind] = c
             total += w * c
         score = round(100.0 * total / tot_w)
-        if best is None or score > best["score"]:
-            best = {"track": tid, "score": score, "comps": comps,
+        # los tracks secundarios compiten con handicap (nunca roban prioridad)
+        compare = score - (PRIORITY_HANDICAP if cfg.get("priority", 1) == 2 else 0)
+        if best is None or compare > best["compare"]:
+            best = {"track": tid, "score": score, "compare": compare, "comps": comps,
                     "label": cfg["label"], "persona": cfg["persona"]}
+
+    # reglas duras (bloqueo de roles técnicos, senioridad, ubicación)
+    loc = (job.get("location") or "")
+    cap, forced = _hard_filters(job, title, text, loc)
+    # piso salarial duro: publicado por debajo de $1.000 -> nunca verde
+    if parsed and parsed["min"] < salary_cfg.get("floor", 1000):
+        cap = min(cap, 65)
+    if forced == "IGNORE" or best["score"] > cap:
+        best["score"] = min(best["score"], cap)
 
     band = "IGNORE"
     emoji = "⚪"
@@ -271,6 +496,8 @@ def score_offer(job, profile, personas=None, top_n=None):
         if best["score"] >= thr:
             band, emoji = b, e
             break
+    if forced == "IGNORE":
+        band, emoji = "IGNORE", "⚪"
 
     # desglose y motivos (solo componentes con peso > 0)
     weights = TRACKS[best["track"]]["weights"]
@@ -290,6 +517,10 @@ def score_offer(job, profile, personas=None, top_n=None):
         reasons.append("salario al objetivo")
     elif parsed:
         reasons.append(f"salario {marker['marker']}")
+    if BONUS_RE.search(text):
+        reasons.append("bonus/comisiones ✓")
+    if CONTRACT_OK_RE.search(text):
+        reasons.append("contrato estable ✓")
 
     return {
         "score": best["score"],

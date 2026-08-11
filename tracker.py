@@ -10,6 +10,8 @@ import uuid
 
 TRACKER_PATH = "data/applications.json"
 
+os.makedirs(os.path.dirname(TRACKER_PATH) or ".", exist_ok=True)
+
 _lock = threading.Lock()
 
 STATUSES = ["Review", "Applied", "Interview", "Offer", "Rejected", "Archived"]
