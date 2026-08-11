@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Hunter — Inteligencia de ofertas</title>
+<style>
+  :root{--bg:#0f1420;--card:#171e2e;--card2:#1d2638;--border:#2a3550;--text:#e8ecf5;--muted:#93a0b8;--accent:#4f8cff;--green:#3ecf8e;--yellow:#ffc857;--red:#ff6b6b;--orange:#ffa94d;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:14.5px;line-height:1.5;}
+  .wrap{max-width:1040px;margin:0 auto;padding:16px;}
+  header{display:flex;align-items:center;gap:12px;padding:14px 0 10px;flex-wrap:wrap;}
+  header h1{font-size:20px;}header h1 span{color:var(--accent);}
+  .badge{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border);color:var(--muted);}
+  .badge.on{color:var(--green);border-color:var(--green);}
+  .spacer{flex:1;}
+  button{background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;transition:.15s;}
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  button.primary:hover{filter:brightness(1.1);}
+  button.small{padding:4px 9px;font-size:12px;}
+  .tabs{display:flex;gap:6px;margin:14px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .tabs button{border-radius:8px 8px 0 0;border-bottom:none;}
+  .tabs button.active{background:var(--card);border-color:var(--border);color:#fff;font-weight:600;border-bottom:2px solid var(--accent);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px;margin-bottom:12px;}
+  .offer-title{font-size:15.5px;font-weight:600;}
+  .offer-meta{color:var(--muted);font-size:12.5px;margin-top:2px;}
+  .chip{display:inline-block;background:var(--card2);border:1px solid var(--border);border-radius:99px;padding:2px 9px;font-size:11.5px;color:var(--muted);margin:3px 3px 0 0;}
+  .chip.match{color:var(--green);border-color:var(--green);}
+  .chip.hot{color:var(--yellow);border-color:var(--yellow);}
+  .score-badge{font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:99px;white-space:nowrap;}
+  .s-now{background:rgba(62,207,142,.16);color:var(--green);border:1px solid var(--green);}
+  .s-apply{background:rgba(79,140,255,.15);color:#7fb0ff;border:1px solid var(--accent);}
+  .s-review{background:rgba(255,200,87,.13);color:var(--yellow);border:1px solid var(--yellow);}
+  .s-ignore{background:rgba(255,107,107,.1);color:var(--red);border:1px solid var(--red);}
+  .salary{color:var(--yellow);font-weight:600;}
+  .reasons{font-size:12px;color:var(--muted);margin-top:6px;}
+  .offer-actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .filters select,.filters input{background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;}
+  .filters input{flex:1;min-width:200px;}
+  .stats-line{color:var(--muted);font-size:12.5px;margin-bottom:10px;}
+  label{display:block;font-size:12px;color:var(--muted);margin-top:11px;font-weight:600;}
+  input[type=text],input[type=number],input[type=email],textarea,select{width:100%;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13.5px;font-family:inherit;margin-top:3px;}
+  textarea{resize:vertical;min-height:60px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;}
+  @media(max-width:760px){.grid{grid-template-columns:1fr;}}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:4px;}
+  .saved{color:var(--green);font-size:13px;display:none;margin-left:10px;}
+  .notice{background:rgba(255,200,87,.08);border:1px solid rgba(255,200,87,.35);border-radius:10px;padding:11px 14px;font-size:12.5px;color:#ffe1a1;margin-bottom:14px;}
+  .hide{display:none;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:flex-start;justify-content:center;padding:20px;overflow:auto;z-index:50;}
+  .modal-bg.open{display:flex;}
+  .modal{background:var(--card);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;padding:18px;}
+  .modal h3{font-size:16px;margin-bottom:4px;}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:12px;}
+  .dl-row{display:flex;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;margin-bottom:7px;flex-wrap:wrap;}
+  .dl-row .name{flex:1;min-width:190px;font-size:13px;}
+  .dl-row .kind{font-size:11px;color:var(--muted);}
+  textarea.answers{width:100%;min-height:240px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;}
+  .answers-block{margin-top:12px;}
+  h2{font-size:15px;margin-bottom:4px;}
+  .muted{color:var(--muted);}
+  .kbd{background:var(--card2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-family:ui-monospace,monospace;font-size:11.5px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;}
+  .status{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;}
+  .st-Review{background:#333d55;color:#b8c4e0;}
+  .st-Applied{background:rgba(79,140,255,.15);color:#7fb0ff;}
+  .st-Interview{background:rgba(255,200,87,.15);color:var(--yellow);}
+  .st-Offer{background:rgba(62,207,142,.16);color:var(--green);}
+  .st-Rejected{background:rgba(255,107,107,.12);color:var(--red);}
+  .st-Archived{color:var(--muted);}
+  .stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;}
+  .stat{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;}
+  .stat .n{font-size:22px;font-weight:700;}
+  .stat .l{font-size:11.5px;color:var(--muted);}
+  details{background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:8px 12px;margin-bottom:8px;}
+  summary{cursor:pointer;font-weight:600;font-size:13px;}
+  footer{color:var(--muted);font-size:11.5px;text-align:center;padding:20px 0 28px;}
+  .link{cursor:pointer;color:var(--accent);text-decoration:none;font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🦅 Job Hunter <span>— inteligencia de ofertas</span></h1>
+    <span class="badge" id="aiBadge">IA: —</span>
+    <span class="badge" id="cacheBadge">—</span>
+    <div class="spacer"></div>
+    <button id="refreshBtn" class="small">↻ Actualizar</button>
+  </header>
+
+  <div class="tabs">
+    <button id="tab-ofertas" class="active" onclick="showTab('ofertas')">💼 Ofertas</button>
+    <button id="tab-perfil" onclick="showTab('perfil')">👤 Perfil + CVs</button>
+    <button id="tab-respuestas" onclick="showTab('respuestas')">📋 Mis respuestas</button>
+    <button id="tab-tracker" onclick="showTab('tracker')">📈 Seguimiento</button>
+    <button id="tab-tips" onclick="showTab('tips')">🧠 LinkedIn/CV</button>
+  </div>
+
+  <!-- ============ OFERTAS ============ -->
+  <section id="sec-ofertas">
+    <div class="stats-line" id="statsLine">Cargando…</div>
+    <div class="filters">
+      <input type="text" id="searchInput" placeholder="🔎 Buscar (python, support, wallet, empresa…)">
+      <select id="bandFilter">
+        <option value="">Todas las bandas</option>
+        <option value="APPLY NOW">🔥 APPLY NOW</option>
+        <option value="APPLY">🟢 APPLY</option>
+        <option value="REVIEW">🟡 REVIEW</option>
+        <option value="IGNORE">⚪ IGNORE</option>
+      </select>
+      <select id="trackFilter">
+        <option value="">Todos los carriles</option>
+        <option value="crypto_support">Crypto Support</option>
+        <option value="crypto_operations">Crypto Operations</option>
+        <option value="community">Web3 Community</option>
+        <option value="junior_research">Junior Research</option>
+        <option value="customer_support">Customer Support 💵</option>
+        <option value="operations">Operations</option>
+      </select>
+    </div>
+    <div id="jobsList"></div>
+    <div id="emptyMsg" class="card hide">Sin resultados con ese filtro.</div>
+  </section>
+
+  <!-- ============ PERFIL ============ -->
+  <section id="sec-perfil" class="hide">
+    <div class="notice">
+      <strong>Perfil maestro = única fuente de verdad.</strong> La herramienta reordena y
+      reformula lo que está acá; nunca inventa. La experiencia independiente crypto se muestra
+      separada de la profesional (credibilidad, no inflación).
+    </div>
+    <div class="card">
+      <h2>Datos personales</h2>
+      <div class="grid">
+        <div><label>Nombre</label><input type="text" id="f_name"></div>
+        <div><label>Headline</label><input type="text" id="f_headline"></div>
+        <div><label>Email</label><input type="email" id="f_email"></div>
+        <div><label>Teléfono</label><input type="text" id="f_phone"></div>
+        <div><label>Ubicación</label><input type="text" id="f_location"></div>
+        <div><label>Links</label><input type="text" id="f_links"></div>
+      </div>
+      <label>Resumen profesional</label>
+      <textarea id="f_summary" rows="4"></textarea>
+      <label>Idiomas (una por línea: Idioma — Nivel)</label>
+      <textarea id="f_langs" rows="2"></textarea>
+      <h2 style="margin-top:14px;">Salario (USD/mes)</h2>
+      <div class="grid">
+        <div><label>Piso (no bajar de)</label><input type="number" id="f_floor"></div>
+        <div><label>Objetivo mínimo</label><input type="number" id="f_target_min"></div>
+        <div><label>Objetivo máximo</label><input type="number" id="f_target_max"></div>
+        <div><label>Zona horaria</label><input type="text" id="f_tz"></div>
+        <div><label>Autorización de trabajo</label><input type="text" id="f_wa"></div>
+        <div><label>Disponibilidad / preaviso</label><input type="text" id="f_notice"></div>
+      </div>
+      <h2 style="margin-top:14px;">Skills por grupo (separadas por coma)</h2>
+      <div class="grid">
+        <div><label>Crypto & Web3</label><textarea id="f_sk_crypto" rows="3"></textarea></div>
+        <div><label>Support</label><textarea id="f_sk_support" rows="3"></textarea></div>
+        <div><label>Community</label><textarea id="f_sk_community" rows="3"></textarea></div>
+        <div><label>Research</label><textarea id="f_sk_research" rows="3"></textarea></div>
+        <div><label>Tools</label><textarea id="f_sk_tools" rows="3"></textarea></div>
+        <div><label>IA / Tech</label><textarea id="f_sk_ai" rows="3"></textarea></div>
+      </div>
+      <h2 style="margin-top:14px;">Experiencia profesional (formato bloques)</h2>
+      <textarea id="f_exp" rows="8" placeholder="# Rol — Empresa (Fechas)&#10;- Logro…"></textarea>
+      <h2 style="margin-top:14px;">Experiencia independiente crypto/Web3</h2>
+      <textarea id="f_ind" rows="8" placeholder="# Rol — Contexto (Fechas)&#10;- Logro…"></textarea>
+      <h2 style="margin-top:14px;">Educación · Certificaciones · Logros</h2>
+      <textarea id="f_edu" rows="3" placeholder="# Título — Universidad (años)"></textarea>
+      <textarea id="f_certs" rows="2" placeholder="Certificación por línea"></textarea>
+      <textarea id="f_ach" rows="3" placeholder="Logro destacado por línea (con números)"></textarea>
+      <div style="margin-top:14px;">
+        <button class="primary" onclick="saveProfile()">💾 Guardar perfil</button>
+        <span class="saved" id="savedMsg">✓ Guardado</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🎭 CVs especializados (personas)</h2>
+      <p class="muted" style="font-size:12.5px;">Cada oferta usa la persona de su carril. Editá headline, resumen y skills en orden.</p>
+      <div id="personasEditor"></div>
+      <div style="margin-top:12px;"><button class="primary" onclick="savePersonas()">💾 Guardar personas</button><span class="saved" id="savedPersons">✓ Guardado</span></div>
+    </div>
+  </section>
+
+  <!-- ============ MIS RESPUESTAS ============ -->
+  <section id="sec-respuestas" class="hide">
+    <div class="notice">
+      <strong>Candidate Profile Database:</strong> contestás una vez y cada aplicación usa estas
+      respuestas. Son las preguntas típicas de Workday/Greenhouse/Lever/Ashby.
+    </div>
+    <div class="card">
+      <div id="answersEditor"></div>
+      <div style="margin-top:14px;"><button class="primary" onclick="saveAnswers()">💾 Guardar respuestas</button><span class="saved" id="savedAns">✓ Guardado</span></div>
+    </div>
+  </section>
+
+  <!-- ============ TRACKER ============ -->
+  <section id="sec-tracker" class="hide">
+    <div class="card">
+      <h2>➕ Registrar aplicación</h2>
+      <div class="grid">
+        <div><label>Empresa</label><input type="text" id="t_company"></div>
+        <div><label>Puesto</label><input type="text" id="t_title"></div>
+        <div><label>Link</label><input type="text" id="t_url"></div>
+        <div><label>Carril</label>
+          <select id="t_track">
+            <option value="crypto_support">Crypto Support</option>
+            <option value="crypto_operations">Crypto Operations</option>
+            <option value="community">Web3 Community</option>
+            <option value="junior_research">Junior Research</option>
+            <option value="customer_support">Customer Support</option>
+            <option value="operations">Operations</option>
+          </select>
+        </div>
+        <div><label>Estado</label>
+          <select id="t_status">
+            <option>Applied</option><option>Review</option><option>Interview</option>
+            <option>Offer</option><option>Rejected</option><option>Archived</option>
+          </select>
+        </div>
+        <div><label>Score (auto si viene de oferta)</label><input type="number" id="t_score"></div>
+      </div>
+      <div style="margin-top:12px;"><button class="primary" onclick="addApp()">➕ Agregar</button></div>
+    </div>
+    <div class="stat-cards" id="statCards"></div>
+    <div class="card"><table id="trackerTable"></table></div>
+  </section>
+
+  <!-- ============ TIPS ============ -->
+  <section id="sec-tips" class="hide">
+    <div class="card">
+      <h2>🔥 Keywords calientes del mercado</h2>
+      <div class="kw-list" id="hotList"></div>
+    </div>
+    <div class="card">
+      <h2>🧩 Keywords que faltan en tu perfil</h2>
+      <div class="kw-list" id="missingList"></div>
+      <div class="hint" id="tipsAdvice" style="margin-top:10px;"></div>
+    </div>
+    <div class="card">
+      <h2>✅ Checklist LinkedIn</h2>
+      <ul style="margin-left:18px;font-size:13.5px;">
+        <li>Hacé tu perfil <b>público</b>: Settings → Visibility → Edit public profile → ON. (Todavía no se puede ver desde afuera).</li>
+        <li>Headline: <i>"Crypto / Web3 Support · Operations · Community · Research | Bilingual EN/ES"</i> — keywords indexadas.</li>
+        <li>About: primeras 2 líneas con tus keywords principales + "Open to Work" activo (recruiters only).</li>
+        <li>Skills: 50 máx, primero las de tus 4 CVs. Categoría "Support" + "Community Management" + "Blockchain".</li>
+        <li>Separá en el About: professional vs. independent crypto experience (mismo criterio que tus CVs).</li>
+        <li>Recomendaciones: pedí 2-3 a gente de Larum / comunidades.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>Job Hunter v2 — 7 fuentes · 6 carriles · scoring 0-100 · la IA encuentra y prepara, vos aprobás y aplicás.</footer>
+</div>
+
+<!-- ============ MODAL PAQUETE ============ -->
+<div class="modal-bg" id="pkgModal">
+  <div class="modal">
+    <h3 id="pkgTitle">Generando…</h3>
+    <div class="sub" id="pkgSub"></div>
+    <div id="pkgFiles"></div>
+    <div class="answers-block">
+      <label>📋 Respuestas para el formulario</label>
+      <textarea class="answers" id="pkgAnswers" readonly></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="primary small" onclick="copyAnswers()">📄 Copiar respuestas</button>
+        <button class="small" onclick="logAppliedFromModal()">✔ Aplicada — registrar</button>
+        <button class="small" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let jobs=[], profile=null, personas=null, lastPkg=null;
+const $=id=>document.getElementById(id);
+async function api(path,opts){const r=await fetch(path,opts);if(!r.ok)throw new Error((await r.text()).slice(0,200));return r.json();}
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function showTab(name){
+  ['ofertas','perfil','respuestas','tracker','tips'].forEach(t=>{
+    $('sec-'+t).classList.toggle('hide',t!==name);
+    $('tab-'+t).classList.toggle('active',t===name);
+  });
+  if(name==='ofertas')renderJobs();
+  if(name==='tracker')loadTracker();
+  if(name==='tips')loadTips();
+  if(name==='respuestas')renderAnswers();
+  if(name==='perfil'){loadProfile();renderPersonas();}
+}
+
+/* ============ OFERTAS ============ */
+async function loadStatus(){
+  try{const s=await api('/api/status');
+    $('aiBadge').textContent=s.ai_enabled?'IA: ACTIVA ✨':'IA: modo plantillas';
+    $('aiBadge').classList.toggle('on',s.ai_enabled);
+    $('cacheBadge').textContent=s.cached_jobs?`${s.cached_jobs} ofertas · ${new Date(s.cache_ts*1000).toLocaleTimeString()}`:'sin datos';
+  }catch(e){}
+}
+async function loadJobs(force){
+  $('statsLine').textContent='Descargando ofertas de 7 bolsas + scoring multi-carril…';
+  try{
+    const d=await api('/api/jobs?force='+(force?'true':'false'));
+    jobs=d.jobs;
+    const bands={};
+    jobs.forEach(j=>bands[j.band]=(bands[j.band]||0)+1);
+    $('statsLine').textContent=`${d.total} ofertas · 🔥${bands['APPLY NOW']||0} 🟢${bands['APPLY']||0} 🟡${bands['REVIEW']||0} · ${new Date(d.ts*1000).toLocaleTimeString()}`;
+    renderJobs();loadStatus();
+  }catch(e){$('statsLine').textContent='⚠️ Error: '+e.message;}
+}
+function renderJobs(){
+  const q=($('searchInput').value||'').toLowerCase().trim();
+  const band=$('bandFilter').value, trk=$('trackFilter').value;
+  const list=jobs.filter(j=>
+    (!band||j.band===band)&&(!trk||j.track===trk)&&
+    (!q||(j.title+' '+j.company+' '+j.tags.join(' ')+' '+j.matched.join(' ')).toLowerCase().includes(q)));
+  $('emptyMsg').classList.toggle('hide',list.length>0);
+  $('jobsList').innerHTML=list.map(j=>`
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:230px;">
+          <div class="offer-title">${esc(j.title)}</div>
+          <div class="offer-meta">${esc(j.company)} · ${esc(j.location)} · ${esc(j.source)}${j.salary?' · <span class="salary">'+esc(j.salary)+'</span>':''} <span title="${esc(j.salary_label)}">${j.salary_marker}</span></div>
+          <div class="tag-row">
+            <span class="chip">🎯 ${esc(j.track_label)}</span>
+            ${j.tags.map(t=>`<span class="chip">${esc(t)}</span>`).join('')}
+          </div>
+          ${j.reasons.length?`<div class="reasons">Why: ${esc(j.reasons.join(' · '))}</div>`:''}
+        </div>
+        <span class="score-badge s-${j.band==='APPLY NOW'?'now':j.band==='APPLY'?'apply':j.band==='REVIEW'?'review':'ignore'}">${j.emoji} ${j.score}/100 · ${j.band}</span>
+      </div>
+      <div class="offer-actions">
+        <button class="primary small" onclick="preparePackage('${j.id}')">🎯 Preparar CV + carta</button>
+        <button class="small" onclick="copyUrl('${esc(j.url)}')">🔗 Link</button>
+        <a class="link" href="${esc(j.url)}" target="_blank" rel="noopener">Ver oferta →</a>
+      </div>
+    </div>`).join('');
+}
+function copyUrl(u){navigator.clipboard?.writeText(u).then(()=>alert('Link copiado ✓'));}
+
+/* ============ PAQUETE ============ */
+let currentOffer=null;
+async function preparePackage(id){
+  currentOffer=jobs.find(j=>j.id===id);
+  $('pkgModal').classList.add('open');
+  $('pkgTitle').textContent='Generando paquete…';
+  $('pkgFiles').innerHTML='<div class="sub">Score '+currentOffer.score+'/100 · '+currentOffer.band+' · Carril: '+currentOffer.track_label+'</div>';
+  $('pkgAnswers').value='';
+  try{
+    const pkg=await api(`/api/offer/${id}/package`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    lastPkg=pkg;
+    $('pkgTitle').textContent=`${pkg.emoji} [${pkg.score}/100 ${pkg.band}] ${pkg.offer.title} @ ${pkg.offer.company}`;
+    $('pkgSub').textContent=`CV recomendado: ${pkg.persona} · ${pkg.offer.salary?'💰 '+esc(pkg.offer.salary):'sin salario publicado'}${pkg.ai_tailored?' · redactado con IA':''}`;
+    $('pkgFiles').innerHTML=pkg.files.map(f=>`
+      <div class="dl-row">
+        <div><div class="name">📄 ${esc(f.name)}</div><div class="kind">${esc(f.kind)}</div></div>
+        <a href="${f.url}" download><button class="small primary">Descargar</button></a>
+      </div>`).join('');
+    $('pkgAnswers').value=pkg.answers.map(a=>'PREGUNTA: '+a.question+'\nRESPUESTA: '+a.answer).join('\n\n');
+  }catch(e){$('pkgTitle').textContent='⚠️ '+e.message;}
+}
+function copyAnswers(){const ta=$('pkgAnswers');ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}if(!ok&&navigator.clipboard)navigator.clipboard.writeText(ta.value).then(()=>ok=true);alert(ok?'Copiado ✓':'Ctrl+C manual');}
+async function logAppliedFromModal(){
+  if(!lastPkg)return;
+  await api('/api/applications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    company:lastPkg.offer.company,title:lastPkg.offer.title,url:lastPkg.offer.url,
+    track:lastPkg.track,persona:lastPkg.persona,score:lastPkg.score,band:lastPkg.band,status:'Applied'})});
+  alert('Registrada en el seguimiento ✓');
+}
+function closeModal(){$('pkgModal').classList.remove('open');}
+$('pkgModal').addEventListener('click',e=>{if(e.target===$('pkgModal'))closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+/* ============ PERFIL ============ */
+function blocksToText(es){return (es||[]).map(e=>{let h=e.role||'';let r=e.company||'';if(e.dates)r+=' ('+e.dates+')';if(r)h+=' — '+r;return '# '+h+'\n'+(e.bullets||[]).map(b=>'- '+b).join('\n');}).join('\n\n');}
+function textToBlocks(txt,sec){const es=[];let cur=null;for(const line of (txt||'').split('\n')){const h=line.match(/^\s*#\s*(.+?)\s*$/);if(h){cur={id:'e'+es.length,section:sec,role:'',company:'',dates:'',bullets:[]};es.push(cur);const parts=h[1].split('—').map(s=>s.trim());cur.role=parts[0]||'';if(parts.length>1){const rest=parts.slice(1).join('—').trim();const dm=rest.match(/\((.*?)\)\s*$/);if(dm){cur.company=rest.slice(0,dm.index).trim();cur.dates=dm[1].trim();}else cur.company=rest;}}else{const b=line.match(/^\s*[-•]\s*(.+?)\s*$/);if(b&&cur)cur.bullets.push(b[1]);}}return es;}
+async function loadProfile(){
+  try{profile=await api('/api/profile');}catch(e){return;}
+  $('f_name').value=profile.name||'';$('f_headline').value=profile.headline||'';
+  $('f_email').value=profile.email||'';$('f_phone').value=profile.phone||'';
+  $('f_location').value=profile.location||'';$('f_links').value=profile.links||'';
+  $('f_summary').value=profile.summary||'';
+  $('f_langs').value=(profile.languages||[]).map(l=>l.lang+(l.level?' — '+l.level:'')).join('\n');
+  const sal=profile.salary||{};
+  $('f_floor').value=sal.floor??'';$('f_target_min').value=sal.target_min??'';$('f_target_max').value=sal.target_max??'';
+  const av=profile.availability||{};
+  $('f_tz').value=av.timezone||profile.timezone||'';$('f_wa').value=av.work_authorization||'';
+  $('f_notice').value=av.notice_period||'';
+  const sk=profile.skills||{};
+  $('f_sk_crypto').value=(sk.crypto||[]).join(', ');$('f_sk_support').value=(sk.support||[]).join(', ');
+  $('f_sk_community').value=(sk.community||[]).join(', ');$('f_sk_research').value=(sk.research||[]).join(', ');
+  $('f_sk_tools').value=(sk.tools||[]).join(', ');$('f_sk_ai').value=(sk.ai||[]).join(', ');
+  $('f_exp').value=blocksToText(profile.experience||[]);
+  $('f_ind').value=blocksToText(profile.independent_experience||[]);
+  $('f_edu').value=blocksToText(profile.education||[]);
+  $('f_certs').value=(profile.certifications||[]).join('\n');
+  $('f_ach').value=(profile.achievements||[]).join('\n');
+}
+function csv(v){return v.split(',').map(s=>s.trim()).filter(Boolean);}
+async function saveProfile(){
+  const body={
+    name:$('f_name').value,headline:$('f_headline').value,email:$('f_email').value,phone:$('f_phone').value,
+    location:$('f_location').value,links:$('f_links').value,summary:$('f_summary').value,
+    languages:$('f_langs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const p=l.split('—').map(s=>s.trim());return p.length>1?{lang:p[0],level:p[1]}:{lang:l};}),
+    salary:{floor:parseInt($('f_floor').value)||1000,target_min:parseInt($('f_target_min').value)||1300,target_max:parseInt($('f_target_max').value)||2000},
+    availability:{timezone:$('f_tz').value,work_authorization:$('f_wa').value,notice_period:$('f_notice').value},
+    skills:{crypto:csv($('f_sk_crypto').value),support:csv($('f_sk_support').value),community:csv($('f_sk_community').value),research:csv($('f_sk_research').value),tools:csv($('f_sk_tools').value),ai:csv($('f_sk_ai').value)},
+    experience:textToBlocks($('f_exp').value,'professional'),
+    independent_experience:textToBlocks($('f_ind').value,'independent'),
+    education:textToBlocks($('f_edu').value),
+    certifications:$('f_certs').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    achievements:$('f_ach').value.split('\n').map(s=>s.trim()).filter(Boolean)
+  };
+  await api('/api/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  flash('savedMsg');loadJobs(false);
+}
+async function renderPersonas(){
+  try{personas=await api('/api/personas');}catch(e){return;}
+  $('personasEditor').innerHTML=Object.entries(personas).map(([id,p])=>`
+    <details>
+      <summary>${p.emoji||'🎭'} ${esc(p.label)} <span class="muted">· ${p.est_minutes||6} min/est · ${esc(id)}</span></summary>
+      <label>Headline</label><input type="text" id="p_${id}_headline" value="${esc(p.headline||'')}">
+      <label>Resumen (PROFILE del CV)</label><textarea id="p_${id}_summary" rows="4">${esc(p.summary||'')}</textarea>
+      <label>Skills en orden (separadas por coma)</label><textarea id="p_${id}_skills" rows="4">${esc((p.skills_order||[]).join(', '))}</textarea>
+    </details>`).join('');
+}
+async function savePersonas(){
+  for(const id in personas){
+    const p=personas[id];
+    await api('/api/personas/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      headline:$('p_'+id+'_headline').value,summary:$('p_'+id+'_summary').value,
+      skills_order:csv($('p_'+id+'_skills').value)})});
+  }
+  flash('savedPersons');
+}
+function flash(id){const el=$(id);el.style.display='inline';setTimeout(()=>el.style.display='none',2500);}
+
+/* ============ MIS RESPUESTAS ============ */
+const QS=[
+  ['years_customer_support','How many years of customer support experience do you have?'],
+  ['crypto_experience','Do you have crypto / Web3 experience?'],
+  ['work_authorization','Are you legally authorized to work in [country]? Do you require visa sponsorship?'],
+  ['salary_expectation','What are your salary expectations? (USD/month)'],
+  ['english_proficiency','How would you rate your English proficiency?'],
+  ['spanish_proficiency','Do you speak Spanish?'],
+  ['availability','When can you start?'],
+  ['notice_period','What is your notice period?'],
+  ['tools_zendesk','Have you used Zendesk / Intercom / helpdesk tools?'],
+  ['remote_experience','How much remote work experience do you have?'],
+  ['education_level','What is your highest level of education?'],
+  ['why_interested','Why do you want to work here?'],
+  ['portfolio_links','Links to portfolio / GitHub / LinkedIn']
+];
+function renderAnswers(){
+  if(!profile)return;
+  const ans=profile.answers||{};
+  $('answersEditor').innerHTML=QS.map(([key,q])=>`
+    <div style="margin-bottom:10px;">
+      <label>${esc(q)}</label>
+      <textarea rows="2" id="a_${key}">${esc(ans[key]||'')}</textarea>
+    </div>`).join('');
+}
+async function saveAnswers(){
+  const answers={};
+  QS.forEach(([key])=>{answers[key]=$('a_'+key).value;});
+  const body={answers:answers};
+  await api('/api/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  flash('savedAns');
+}
+
+/* ============ TRACKER ============ */
+async function addApp(){
+  await api('/api/applications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    company:$('t_company').value,title:$('t_title').value,url:$('t_url').value,
+    track:$('t_track').value,status:$('t_status').value,score:parseInt($('t_score').value)||null,notes:''})});
+  $('t_company').value='';$('t_title').value='';$('t_url').value='';$('t_score').value='';
+  loadTracker();
+}
+async function loadTracker(){
+  const [apps,stats]=await Promise.all([api('/api/applications'),api('/api/applications/stats')]);
+  $('statCards').innerHTML=`
+    <div class="stat"><div class="n">${stats.total}</div><div class="l">Aplicaciones</div></div>
+    <div class="stat"><div class="n">${stats.by_status.Interview||0}</div><div class="l">Entrevistas</div></div>
+    <div class="stat"><div class="n">${stats.by_status.Offer||0}</div><div class="l">Ofertas</div></div>
+    <div class="stat"><div class="n">${stats.by_status.Rejected||0}</div><div class="l">Rechazos</div></div>
+    ${Object.entries(stats.by_track).map(([t,d])=>`<div class="stat"><div class="n" style="font-size:15px;">${esc(t)}</div><div class="l">${d.applied} apps · ${d.interview_rate}% entrevista · ${d.offer_rate}% oferta</div></div>`).join('')}`;
+  $('trackerTable').innerHTML=`<thead><tr><th>Fecha</th><th>Empresa / Puesto</th><th>Carril</th><th>Score</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${apps.map(a=>`<tr>
+      <td>${esc(a.date)}</td>
+      <td><b>${esc(a.company)}</b>${a.title?'<br>'+esc(a.title):''}${a.url?'<br><a class="link" target="_blank" href="'+esc(a.url)+'">link →</a>':''}</td>
+      <td>${esc(a.track||'')}</td>
+      <td>${a.score??''}</td>
+      <td><span class="status st-${esc(a.status)}">${esc(a.status)}</span></td>
+      <td><select onchange="setStatus('${a.id}',this.value)">${['Review','Applied','Interview','Offer','Rejected','Archived'].map(s=>`<option ${s===a.status?'selected':''}>${s}</option>`).join('')}</select></td>
+    </tr>`).join('')||'<tr><td colspan="6" class="muted">Todavía no registraste aplicaciones. Aplicá y tocá "✔ Aplicada — registrar".</td></tr>'}</tbody>`;
+}
+async function setStatus(id,status){await api('/api/applications/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});loadTracker();}
+
+/* ============ TIPS ============ */
+async function loadTips(){
+  try{const d=await api('/api/hot-keywords');
+    $('hotList').innerHTML=d.hot.map(k=>`<span class="chip hot">${esc(k)}</span>`).join(' ');
+    $('missingList').innerHTML=d.missing.length?d.missing.map(k=>`<span class="chip">${esc(k)}</span>`).join(' '):'<span class="muted">Tu perfil ya cubre las keywords del mercado 👏</span>';
+    $('tipsAdvice').textContent=d.advice;
+  }catch(e){}
+}
+
+/* ============ INIT ============ */
+$('refreshBtn').addEventListener('click',()=>loadJobs(true));
+$('searchInput').addEventListener('input',renderJobs);
+$('bandFilter').addEventListener('change',renderJobs);
+$('trackFilter').addEventListener('change',renderJobs);
+(async function init(){
+  loadStatus();loadJobs(false);loadProfile();loadTracker();
+})();
+</script>
+</body>
+</html>

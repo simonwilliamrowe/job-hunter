@@ -1,0 +1,176 @@
+{
+  "name": "Simon William Rowe Harris",
+  "headline": "Crypto / Web3 Support · Operations · Community · Research",
+  "email": "simonwilliamrowe@gmail.com",
+  "phone": "+595 994 643 952",
+  "location": "Paraguay · Remote",
+  "timezone": "GMT-4 (America/Asuncion)",
+  "links": "linkedin.com/in/simonwrh/",
+  "summary": "Bilingual English/Spanish crypto and Web3 professional with 7+ years of hands-on experience across cryptocurrency, wallets, exchanges, DeFi, self-custody, blockchain ecosystems and online communities. Built practical knowledge through direct participation in the ecosystem since 2017: bounty hunting, project research, tokenomics analysis, staking, DEXs, centralized exchanges, hardware wallets, blockchain explorers and Web3 communities. Strong at translating technical concepts into clear, practical guidance for non-technical users. Also experienced in AI-assisted workflows, content creation and building practical automation tools with Python and APIs.",
+  "languages": [
+    {"lang": "English", "level": "Native / Bilingual"},
+    {"lang": "Spanish", "level": "Native / Bilingual"}
+  ],
+  "target_roles": {
+    "primary": ["Crypto Support", "Crypto Operations", "Community", "Junior Web3 Research"],
+    "secondary": ["Customer Support Specialist", "Customer Experience", "Customer Success Associate", "Technical Support", "Operations Associate", "Client Support", "Community Support", "Trust & Safety", "Payments Support", "Fintech Support", "SaaS Support"]
+  },
+  "salary": {
+    "floor": 1000,
+    "target_min": 1300,
+    "target_max": 2000,
+    "currency": "USD",
+    "note": "Below $1,000/month only with an exceptional strategic reason. $1,300-2,000+ is the target band."
+  },
+  "availability": {
+    "notice_period": "Immediate / no notice period",
+    "start_date": "Inmediato",
+    "work_authorization": "Remote contractor based in Paraguay. No visa sponsorship or relocation needed.",
+    "hours": "Flexible, international time zones (GMT-4). Can overlap US and EU working hours.",
+    "years_support": 2,
+    "years_crypto_exposure": 7
+  },
+  "skills": {
+    "crypto": ["Self-custody & hardware wallets", "Seed phrase & private-key security", "Wallet setup, recovery & troubleshooting", "CEX / DEX operations", "Blockchain networks & token transfers", "Gas fees, network selection & transaction troubleshooting", "Staking & liquid staking", "DeFi, NFTs, DAOs, RWAs & L2 concepts", "Blockchain explorers & on-chain basics", "Fiat ↔ Crypto", "KYC, Source of Funds, Proof of Funds"],
+    "support": ["Customer support & user education", "Technical troubleshooting", "De-escalation & clear communication", "Written support", "Security awareness & scam prevention", "Explaining complex concepts to non-technical users", "Onboarding users"],
+    "community": ["Telegram communities", "Discord communities", "X/Twitter", "Community engagement & Q&A", "Moderation concepts", "Multilingual communities", "Content & educational material"],
+    "research": ["Project due diligence", "Tokenomics & vesting schedules", "Market-cap & liquidity analysis", "Project fundamentals", "Roadmap & development assessment", "Community & narrative analysis", "Competitive research", "Risk identification"],
+    "tools": ["Ledger & Ledger Live", "MetaMask", "Phantom", "Yoroi", "Eternl", "Etherscan", "Solscan", "Cardanoscan", "CoinGecko", "CoinMarketCap", "DeFiLlama", "TradingView", "Google Sheets", "Excel"],
+    "ai": ["ChatGPT", "Claude", "Gemini", "OpenAI API", "AI image & video generation", "Prompt engineering", "Python-assisted workflows", "API-based automation"]
+  },
+  "experience": [
+    {
+      "id": "larum",
+      "section": "professional",
+      "role": "Founder · Strategic Director / AI & Visual Systems",
+      "company": "Larum Studio",
+      "dates": "Dec 2025 – Present",
+      "bullets": [
+        "Build AI-assisted image editing workflows focused on photographic realism, architectural fidelity and premium visual presentation.",
+        "Built proprietary Python/OpenAI API tools to process property photography in batches, reducing repetitive manual work.",
+        "Created Larum Narrative, an AI-assisted system that analyses property images and orders them by visual hierarchy and narrative flow.",
+        "Built automated workflows for perspective correction, image processing, resolution and aspect-ratio standardisation.",
+        "Design highly constrained prompts and validation processes to minimise AI hallucinations and preserve factual accuracy.",
+        "Use LLMs and AI tools as operational systems: custom workflows, skills, APIs and structured prompting."
+      ]
+    },
+    {
+      "id": "binary",
+      "section": "professional",
+      "role": "Product Reviewer · Customer Support · Sales",
+      "company": "Binary Options Product Review",
+      "dates": "2016 – 2017",
+      "bullets": [
+        "Managed customer interactions for an independent online financial-product review operation.",
+        "Supported approximately 200–300 customers across the period.",
+        "Explained complex financial products and platform characteristics clearly to prospective users.",
+        "Handled objections, questions and customer concerns through direct communication.",
+        "Achieved a monthly milestone of approximately 50 closed conversions, exceeding the role's target.",
+        "Earned additional performance-based incentives for exceeding conversion objectives."
+      ]
+    },
+    {
+      "id": "aas",
+      "section": "professional",
+      "role": "Research / Content & Online Operations",
+      "company": "Advanced Analytics Solutions",
+      "dates": "2011 – 2012",
+      "bullets": [
+        "Developed online research, analytical and content-related skills.",
+        "Independent information gathering and structured evaluation of products and services."
+      ]
+    },
+    {
+      "id": "freelance",
+      "section": "professional",
+      "role": "Freelance / Independent Work",
+      "company": "Photography · Coaching · Event Work · Community Projects",
+      "dates": "Various periods",
+      "bullets": [
+        "Photography and visual work for local events.",
+        "Private acrobatics coaching; camp/activity supervision and mentoring.",
+        "International volunteer and community projects across Europe and Asia.",
+        "Bioconstruction workshop coordinator for a European volunteer programme with ~40 international participants.",
+        "Extensive multicultural experience working and living with international communities."
+      ]
+    }
+  ],
+  "independent_experience": [
+    {
+      "id": "crypto_ind",
+      "section": "independent",
+      "role": "Crypto Research · Self-Custody · Community & User Education",
+      "company": "Crypto / Web3 — Independent Experience",
+      "dates": "2017 – Present",
+      "bullets": [
+        "Seven years of continuous hands-on involvement across cryptocurrency and Web3 ecosystems: Ethereum, Cardano, Solana and BNB Chain.",
+        "Personally operated CEXs and DEXs including Binance, Kraken, KuCoin, Gate.io, Bitget, SundaeSwap, Minswap and PancakeSwap.",
+        "Extensive practical experience with self-custody, hardware wallets, seed phrases, wallet recovery, secure transaction signing and network selection.",
+        "Troubleshot common issues: failed transactions, incorrect network selection, gas-fee requirements, wallet connections and transaction-signing problems.",
+        "Helped friends and users with wallet onboarding, exchange transfers, blockchain transactions and basic Web3 workflows.",
+        "Educated users on phishing, seed-phrase protection, private-key security, suspicious websites and transaction verification.",
+        "Participated in Telegram and Discord communities, answering questions and helping users understand crypto projects.",
+        "Used Etherscan, Solscan and Cardanoscan to inspect addresses, transaction status, fees and network activity.",
+        "Researched projects through tokenomics, vesting schedules, market capitalisation, liquidity, roadmaps, development activity and fundamentals."
+      ]
+    },
+    {
+      "id": "bounty",
+      "section": "independent",
+      "role": "Bounty Hunter · Translator · Community Contributor",
+      "company": "Bounty Hunting / Crypto Content",
+      "dates": "2017 – 2018",
+      "bullets": [
+        "Completed approximately 10 technical whitepaper translations between English and Spanish, including documents approaching 50 pages.",
+        "Participated in Bitcointalk bounty programmes and early-stage crypto communities.",
+        "Researched complex blockchain concepts to accurately translate technical documentation.",
+        "Evaluated early-stage projects for legitimacy, risk and potential before participating.",
+        "Received project tokens as compensation, gaining first-hand exposure to early-stage token economics."
+      ]
+    },
+    {
+      "id": "cardano",
+      "section": "independent",
+      "role": "Independent Ecosystem Participant & Researcher",
+      "company": "Cardano Ecosystem",
+      "dates": "2019 – Present",
+      "bullets": [
+        "Long-term independent study of the Cardano ecosystem and its development.",
+        "Participated in staking and ISPO-related activity.",
+        "Completed Cardano Blockchain Fundamentals certification.",
+        "Attended the Cardano Summit 2022.",
+        "Studied Cardano's ecosystem, staking model, projects, token economics and broader blockchain positioning."
+      ]
+    }
+  ],
+  "education": [
+    {"degree": "Digital Film & Post-Production Technology / CGI & Digital Effects", "school": "Staffordshire University — UK", "dates": "2013 – 2015 (studies completed partially)"}
+  ],
+  "certifications": ["Cardano Blockchain Fundamentals — Cardano"],
+  "achievements": [
+    "~50 closed conversions in a single month (target exceeded)",
+    "200–300 customers supported in financial products",
+    "~10 technical whitepaper translations (up to 50 pages) EN↔ES",
+    "Cardano Summit 2022 attendee",
+    "7+ years continuous hands-on crypto/Web3 exposure (2017–present)"
+  ],
+  "portfolio": [
+    {"name": "Larum Studio", "url": "", "desc": "AI & visual systems studio: Python/OpenAI API automation, AI image workflows"}
+  ],
+  "extra_keywords": ["self-custody", "hardware wallets", "seed phrase", "DeFi", "staking", "tokenomics", "due diligence", "KYC", "blockchain explorers", "gas fees", "transaction troubleshooting", "user education", "onboarding", "community", "bilingual", "customer support", "technical writing", "whitepapers", "ledger", "metamask", "discord", "telegram"],
+  "answers": {
+    "years_customer_support": "2+ years of direct customer-facing work (200-300 customers supported in a financial products role, ~50 closed conversions in one month) plus 7+ years helping users in crypto communities (Telegram/Discord).",
+    "crypto_experience": "7+ years of sustained hands-on exposure to crypto and blockchain: self-custody, hardware wallets, exchanges (Binance, Kraken, KuCoin, Gate.io, Bitget), DEXs, DeFi, staking, tokenomics research, whitepaper translation and community support.",
+    "work_authorization": "Remote contractor based in Paraguay. No visa sponsorship or relocation needed. Fully set up for remote work with flexible hours.",
+    "salary_expectation": "$1,300-$2,000/month depending on scope and conditions; open to negotiation.",
+    "english_proficiency": "Native / bilingual. Professional written and spoken communication.",
+    "spanish_proficiency": "Native speaker (LATAM).",
+    "availability": "Immediate start. Can overlap US and EU working hours (GMT-4, Paraguay).",
+    "notice_period": "Immediate / no notice period.",
+    "tools_zendesk": "I work daily with Discord, Telegram, Slack, Google Workspace and ticket-style workflows. I haven't used Zendesk in a formal role, but I'm a fast learner and comfortable with helpdesk tools.",
+    "remote_experience": "7+ years working remotely in international environments.",
+    "education_level": "Partial university studies: Digital Film & Post-Production Technology / CGI & Digital Effects, Staffordshire University, UK (2013-2015).",
+    "why_interested": "The role matches my core strengths and I'm looking for a long-term remote position where I can contribute from day one.",
+    "portfolio_links": "linkedin.com/in/simonwrh/ · github.com/simonwilliamrowe"
+  }
+}
