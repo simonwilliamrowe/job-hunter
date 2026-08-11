@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        run: pip install -q requests python-docx
+        run: pip install -q requests python-docx reportlab
 
       - name: Ejecutar bot (buscar → matchear → preparar → notificar)
         env:
