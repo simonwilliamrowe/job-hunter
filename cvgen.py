@@ -214,7 +214,7 @@ def _answers_for(profile, job):
     if parsed:
         answers["salary_expectation"] = (
             f"{profile.get('answers', {}).get('salary_expectation', '$1,300-$2,000/month.')} "
-            f"(La oferta publica {parsed['raw']}.)")
+            f"(The listed range for this role is {parsed['raw']}.)")
     wv_long = profile.get("work_values", {}).get("long", "")
     wv_short = profile.get("work_values", {}).get("short", "")
     skills_short = ", ".join((profile.get("skills") or {}).get("support", [])[:3]) or "support and operations"
@@ -234,16 +234,36 @@ def _answers_for(profile, job):
 
     company = job.get("company", "")
     if company:
+        # Whitelist of "safe" focus areas for why_interested. We only include
+        # tags that clearly map to the candidate's lanes; anything else (CSS,
+        # excel, frontend, etc. from raw job tags) is dropped to avoid
+        # misrepresenting the candidate's skills.
+        _SAFE_FOCUS = {
+            "crypto", "web3", "blockchain", "defi", "staking", "wallets",
+            "customer support", "customer service", "customer success",
+            "client support", "technical support", "support",
+            "community", "community manager", "community support",
+            "operations", "ops", "trust & safety", "trust and safety",
+            "kyc", "compliance", "payments", "fintech", "banking",
+            "research", "due diligence", "tokenomics",
+            "ai", "content", "copy", "writing", "voice", "audio", "bilingual",
+            "data entry", "admin", "virtual assistant", "va",
+        }
         _NOISE_TAGS = {"all", "full time", "part time", "programming", "design",
                        "product", "sales", "marketing", "devops/sysadmin",
-                       "customer support", "customer service", "remote"}
-        tags = [t for t in (job.get("tags") or [])
-                if t.strip().lower() not in _NOISE_TAGS and len(t) <= 18][:3]
-        focus = ", ".join(tags) or "remote support/operations"
+                       "remote", "worldwide", "anywhere", "global", "latam",
+                       "english", "spanish"}
+        raw_tags = [t.strip().lower() for t in (job.get("tags") or [])]
+        safe_tags = [t for t in raw_tags
+                     if t in _SAFE_FOCUS and t not in _NOISE_TAGS][:3]
+        if safe_tags:
+            focus = ", ".join(safe_tags)
+        else:
+            focus = "customer support, operations, and crypto/Web3 user education"
         answers["why_interested"] = (
-            f"I'm excited about {company} because the role matches my core strengths "
-            f"({focus}) and I'm looking for a long-term remote position where I can "
-            f"contribute from day one.")
+            f"I'm interested in {company} because the role aligns with my core "
+            f"strengths ({focus}) and I'm looking for a long-term remote position "
+            f"where I can contribute from day one.")
     return answers
 
 

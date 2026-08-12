@@ -38,9 +38,9 @@ def _styles():
         "contact": ParagraphStyle("contact", fontName="Helvetica", fontSize=9,
                                   leading=12, textColor=MUTED, spaceAfter=6),
         "section": ParagraphStyle("section", fontName="Helvetica-Bold", fontSize=12,
-                                  leading=14, textColor=ACCENT, spaceBefore=10, spaceAfter=4),
+                                  leading=14, textColor=ACCENT, spaceBefore=2, spaceAfter=1, keepWithNext=1),
         "role": ParagraphStyle("role", fontName="Helvetica-Bold", fontSize=10.5,
-                               leading=13, textColor=INK, spaceBefore=7, spaceAfter=1),
+                               leading=13, textColor=INK, spaceBefore=4, spaceAfter=1, keepWithNext=1),
         "bullet": ParagraphStyle("bullet", fontName="Helvetica", fontSize=9.5,
                                  leading=12.5, textColor=INK, leftIndent=10,
                                  bulletIndent=0, spaceAfter=1.5, alignment=TA_JUSTIFY),
@@ -120,9 +120,17 @@ def build_pdf(profile, persona, out_path):
             hdr = f"{hdr} · {e['dates']}"
         block = [Paragraph(_esc(hdr), st["role"])]
         bullets = [re.sub(r"^•\s*", "", b).strip() for b in e.get("bullets", []) if b]
-        for b in bullets:
-            block.append(Paragraph(_esc(b), st["bullet"], bulletText="•"))
-        story.append(KeepTogether(block))
+        # Keep the header glued to the first bullet so a role title never
+        # appears alone at the bottom of a page, but let the rest of the
+        # bullets flow naturally. This avoids the giant blank gap that
+        # appears when a long bullet block is forced to the next page.
+        if bullets:
+            first_bullet = Paragraph(_esc(bullets[0]), st["bullet"], bulletText="•")
+            story.append(KeepTogether(block + [first_bullet]))
+            for b in bullets[1:]:
+                story.append(Paragraph(_esc(b), st["bullet"], bulletText="•"))
+        else:
+            story.append(KeepTogether(block))
 
     # EDUCACIÓN
     if profile.get("education"):
