@@ -318,10 +318,36 @@ LOCATION_COUNTRY = re.compile(
     r"uae|saudi|qatar|europe|emea|asia|australia|singapore)\b", re.I)
 
 
+REQ_HEADER_RE = re.compile(
+    r"\b(requirements?|qualifications?|what you (need|bring)|you (must|should|need) (have|be)|"
+    r"what we (need|require|look for)|key requirements|essential (requirements|criteria)|"
+    r"required qualifications|job requirements)\b\s*:?",
+    re.I)
+REQ_END_RE = re.compile(
+    r"\b(benefits?|compensation|salary|what we offer|perks|about us|how to apply|"
+    r"to apply|apply now|our company|company (info|description)|nice to have|"
+    r"bonus points|perks & benefits)\b",
+    re.I)
+
+
+def _extract_requirements(desc):
+    """Devuelve el texto de la sección Requirements si existe."""
+    if not desc:
+        return ""
+    m = REQ_HEADER_RE.search(desc)
+    if not m:
+        return ""
+    start = m.end()
+    end = REQ_END_RE.search(desc, start)
+    section = desc[start:end.start()] if end else desc[start:start + 1500]
+    return section
+
+
 def _hard_filters(job, title, text, loc):
     """Aplica reglas duras. Devuelve (nuevo_score_max, band_forced).
     band_forced: None (normal), 'IGNORE' o 'REVIEW'."""
     hay = f"{title} {loc} {text[:800]}"
+    req = _extract_requirements(job.get("description") or "")
     cap = 100
     # 0) bloquear roles creativos/edición profesionales (no defendibles)
     if CREATIVE_ROLE_BLOCK.search(title):
@@ -339,16 +365,19 @@ def _hard_filters(job, title, text, loc):
     if not REMOTE_WORDS.search(hay):
         return 0, "IGNORE"
     # 4b) presencia física obligatoria (onboarding en persona, oficina, relocación)
-    if IN_PERSON_RE.search(text):
+    if IN_PERSON_RE.search(text) or IN_PERSON_RE.search(req):
         return 0, "IGNORE"
     # 4c) híbrido/presencia parcial (in-office days): EXCLUIDO TOTAL.
     #     El candidato vive en Paraguay y necesita 100% remoto.
-    if HYBRID_RE.search(text):
+    if HYBRID_RE.search(text) or HYBRID_RE.search(req):
         return 0, "IGNORE"
     # 5) restricción geográfica (ubicación o descripción): IGNORE directo.
     #    Solo remoto GLOBAL / LATAM / Sudamérica / Paraguay sirve.
-    if _location_restricted(loc, text, title):
+    if _location_restricted(loc, text, title) or _location_restricted("", req, ""):
         return 0, "IGNORE"
+    # requisitos de horario/ubicación estrictos en requirements
+    if re.search(r"\b(must|required|need to|only) (be|work|live|based) (in|within|during)\b", req, re.I):
+        cap = min(cap, 65)
     # pago inestable (por proyecto/gig/comisión pura): nunca verde
     if PER_PROJECT_RE.search(hay):
         cap = min(cap, 65)
@@ -383,12 +412,20 @@ _RESTRICT_PATTERNS = [
     r"\b(open|available) (only )?to (candidates|applicants) (based|located )?(in|within)\b",
     r"\bcandidates (must|need|required) (to )?be (based|located) (in|within)\b",
     r"\b(work authorization|right to work|eligib\w+ to work|authorized to work|"
-    r"permit to work|visa sponsorship) (in|within|required|needed)\b",
-    r"\bresidency (in|within|requirement)\b",
-    r"\b(only|exclusively)\b.{0,25}\b(candidates|applicants|residents|based|located)\b",
+    r"permit to work|visa sponsorship|work permit|visa) (in|within|required|needed|from|of|for|to work)\b",
+    r"\bin possession of a (work permit|visa)\b",
+    r"\b(will|shall) not be considered\b",
+    r"\b(will|shall) not (be )?(considered|eligible|qualif\w+)\b",
+    r"\b(must|need to|required to|have to) (have|hold|possess|obtain) a (work permit|visa|residence|permit)\b",
+    r"\b(must|need to|required to) (be|have) (a|the) (citizen|resident|national|permanent resident) (of|in)\b",
+    r"\b(citizens?|residents?|nationals?) of (the )?(us|usa|uk|canada|australia|germany|france|spain|"
+    r"netherlands|poland|portugal|ireland|sweden|singapore|japan|india|philippines|finland|norway|denmark)\b",
+    r"\b(only|exclusively) (open|available|consider\w*) (to|for)\b.{0,30}\b(candidates|applicants|"
+    r"residents|based|located|citizens|nationals)\b",
     r"\b(us|usa|uk|eu|europe|canada|australia|germany|france|spain|netherlands|poland|"
     r"portugal|ireland|sweden|singapore|japan|india|philippines|brazil|mexico|argentina|"
-    r"chile|colombia|peru|uruguay)\b[^.]{0,40}\b(only|exclusively|required)\b",
+    r"chile|colombia|peru|uruguay|finland|norway|denmark|austria|belgium|switzerland)\b"
+    r"[^.]{0,40}\b(only|exclusively|required|permit|visa)\b",
 ]
 
 
@@ -406,11 +443,15 @@ def _location_restricted(loc, text, title):
     El campo de ubicación manda: si dice un país/región sin remoto global,
     se descarta aunque la descripción mencione 'global'."""
     loc = _loc_norm(loc or "")
+    # 0) el título también puede decir "Remote - Canada, UK, Spain..." o "(USA only)"
+    title_norm = _loc_norm(title)
+    if _COUNTRY_RE.search(title_norm) and not _SAFE_RE.search(title_norm):
+        return True
     # 1) ubicación autoritativa
     if _COUNTRY_RE.search(loc):
         return not _SAFE_RE.search(loc)
     # 2) la descripción puede esconder restricciones (escaneo COMPLETO)
-    hay = f"{_loc_norm(text[:6000])} {_loc_norm(title)}"
+    hay = f"{_loc_norm(text[:7000])} {title_norm}"
     for pat in _RESTRICT_PATTERNS:
         m = re.search(pat, hay, re.I)
         if m:
