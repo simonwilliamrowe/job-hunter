@@ -41,9 +41,10 @@
   "salary": {
     "floor": 1000,
     "target_min": 1300,
-    "target_max": 2000,
+    "target_max": null,
     "currency": "USD",
-    "note": "Stable monthly income required (employee OR contractor/autónomo with RUC and monthly invoicing). Per-project gigs, one-time tasks or commission-only are NOT accepted. Bonus/commissions welcome as extra. Hard floor: $1,000/month."
+    "note": "100% REMOTE ONLY (no hybrid, no in-office days, no physical onboarding). Stable monthly income required (employee OR contractor/autónomo with RUC and monthly invoicing). Per-project gigs or commission-only NOT accepted. Bonus/commissions welcome. Hard floor: $1,000/month. NO maximum salary cap.",
+    "max_note": "NO upper salary limit. Only minimum: $1,000/month. Higher is always welcome."
   },
   "availability": {
     "notice_period": "Immediate / no notice period",
@@ -271,7 +272,7 @@
     "years_customer_support": "2+ years of direct customer-facing work (200-300 customers supported in a financial products role, ~50 closed conversions in one month) plus 7+ years helping users in crypto communities (Telegram/Discord).",
     "crypto_experience": "7+ years of sustained hands-on exposure to crypto and blockchain (2018–present): self-custody, hardware wallets, exchanges (Binance, Kraken, KuCoin, Gate.io, Bitget), DEXs, DeFi, staking, tokenomics research, whitepaper translation and community support.",
     "work_authorization": "Remote worker based in Paraguay. I have my RUC (tax ID) ready and can work as an independent contractor, invoicing monthly and handling my own taxes. No visa sponsorship or relocation needed.",
-    "salary_expectation": "I'm looking for a stable monthly arrangement of $1,300-$2,000 USD (minimum $1,000), whether as an employee or as an independent contractor with monthly invoicing (I have my RUC in Paraguay and handle my own taxes). Performance bonuses, commissions and incentives are a plus.",
+    "salary_expectation": "I'm looking for a stable monthly arrangement of at least $1,000 USD, targeting $1,300-$2,000+ — there is no upper limit on my expectations; I'm open to what the role is worth. Employee or independent contractor with monthly invoicing both work (I have my RUC in Paraguay and handle my own taxes). Bonus/commissions welcome as extra.",
     "english_proficiency": "Native / bilingual. Professional written and spoken communication.",
     "spanish_proficiency": "Native speaker (LATAM).",
     "availability": "Immediate start. Can overlap US and EU working hours (GMT-4, Paraguay).",

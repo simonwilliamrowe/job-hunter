@@ -224,6 +224,21 @@ PER_PROJECT_RE = re.compile(
     r"100% commission|commission[- ]only|paid per (project|task|gig|word|page|recording)|"
     r"pay[- ]per|per assignment|short[- ]term gig)\b", re.I)
 HOURLY_RE = re.compile(r"\b(per hour|hourly|per hr|/hr\b|by the hour)\b", re.I)
+# PRESENCIA FÍSICA OBLIGATORIA (no puede: vive en Paraguay, no viaja)
+IN_PERSON_RE = re.compile(
+    r"\b(onboard(ing)? (in person|on[- ]site|at our office|in one of our offices)|"
+    r"in[- ]person onboarding|on[- ]site onboarding|must (attend|complete|do) onboarding|"
+    r"onboarding (is|will be) (in person|on[- ]site|at our)|"
+    r"physical office|our offices (in|are)|relocat\w* required|must relocat\w*|"
+    r"must (work|be|come) (from|in|at|into) (the )?office|work from (the )?office|"
+    r"office (attendance|presence|presencial)|in[- ]office (requirement|days|attendance)|"
+    r"required to (be|work|come) (in|at|into) (the )?office|come into the office)\b", re.I)
+
+# HÍBRIDO / PRESENCIA PARCIAL: no bloquea del todo pero nunca verde
+HYBRID_RE = re.compile(
+    r"\bhybrid\b|on[- ]site (days|requirement)|in[- ]office (days|requirement)|"
+    r"office[- ]based|presencial (days|requirement)|work from office (days|some)", re.I)
+
 # señales POSITIVAS de relación estable (empleo o contrato largo)
 CONTRACT_OK_RE = re.compile(
     r"\b(contract|contractor|independent contractor|long[- ]term|ongoing|"
@@ -323,6 +338,13 @@ def _hard_filters(job, title, text, loc):
     # 4) no es remoto en absoluto: IGNORE
     if not REMOTE_WORDS.search(hay):
         return 0, "IGNORE"
+    # 4b) presencia física obligatoria (onboarding en persona, oficina, relocación)
+    if IN_PERSON_RE.search(text):
+        return 0, "IGNORE"
+    # 4c) híbrido/presencia parcial (in-office days): EXCLUIDO TOTAL.
+    #     El candidato vive en Paraguay y necesita 100% remoto.
+    if HYBRID_RE.search(text):
+        return 0, "IGNORE"
     # 5) restricción geográfica (ubicación o descripción): IGNORE directo.
     #    Solo remoto GLOBAL / LATAM / Sudamérica / Paraguay sirve.
     if _location_restricted(loc, text, title):
@@ -348,7 +370,9 @@ _COUNTRY_RE = re.compile(
 # zonas SEGURAS (Paraguay incluido)
 _SAFE_RE = re.compile(
     r"\b(worldwide|global|globally|anywhere|around the world|all over the world|"
-    r"latin america|latam|south america|central america|americas)\b", re.I)
+    r"latin america|latam|south america|central america|americas|"
+    r"ecuador|bolivia|venezuela|panama|guatemala|honduras|nicaragua|el salvador|"
+    r"costa rica|dominican republic|puerto rico|cuba)\b", re.I)
 
 # frases de restricción que suelen ir en la descripción
 _RESTRICT_PATTERNS = [
@@ -385,8 +409,8 @@ def _location_restricted(loc, text, title):
     # 1) ubicación autoritativa
     if _COUNTRY_RE.search(loc):
         return not _SAFE_RE.search(loc)
-    # 2) la descripción puede esconder restricciones
-    hay = f"{_loc_norm(text[:1600])} {_loc_norm(title)}"
+    # 2) la descripción puede esconder restricciones (escaneo COMPLETO)
+    hay = f"{_loc_norm(text[:6000])} {_loc_norm(title)}"
     for pat in _RESTRICT_PATTERNS:
         m = re.search(pat, hay, re.I)
         if m:
@@ -460,7 +484,7 @@ def score_offer(job, profile, personas=None, top_n=None):
     text = " ".join([
         title,
         " ".join(job.get("tags") or []),
-        (job.get("description") or "")[:4500],
+        (job.get("description") or "")[:7000],
     ]).lower()
     parsed = parse_salary(job.get("salary") or "")
     marker = salary_marker(parsed, salary_cfg)
