@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import ai
+import applied as applied_mod
 import cvgen
 import fetchers
 import matcher
@@ -52,8 +53,11 @@ def _get_jobs(force=False):
 
 
 def _enriched(jobs, profile):
+    applied_ids = applied_mod.ids()
     out = []
     for j in jobs:
+        if j["id"] in applied_ids:
+            continue  # ya aplicaste: no se muestra nunca más
         s = matcher.score_offer(j, profile)
         s["matched"] = matcher.family_match(j, profile)
         out.append({
@@ -228,6 +232,28 @@ def applications_update(app_id: str, body: dict):
 @app.get("/api/applications/stats")
 def applications_stats():
     return tracker_mod.stats()
+
+
+@app.get("/api/applied")
+def get_applied():
+    return applied_mod.load()
+
+
+@app.post("/api/applied")
+def add_applied(body: dict):
+    items = applied_mod.add(
+        offer_id=body.get("offer_id", ""),
+        company=body.get("company", ""),
+        title=body.get("title", ""),
+        source=body.get("source", ""),
+        snapshot=body.get("snapshot"),
+    )
+    return {"ok": True, "applied": items}
+
+
+@app.delete("/api/applied/{offer_id}")
+def remove_applied(offer_id: str):
+    return {"ok": True, "applied": applied_mod.remove(offer_id)}
 
 
 @app.get("/api/hot-keywords")

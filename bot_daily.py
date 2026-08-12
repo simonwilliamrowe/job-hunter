@@ -17,6 +17,7 @@ os.makedirs("data", exist_ok=True)  # la carpeta data/ siempre existe
 
 import requests
 
+import applied
 import cvgen
 import fetchers
 import matcher
@@ -24,6 +25,8 @@ import tracker
 from profile_store import load_profile, load_personas
 
 STATE_PATH = "data/seen.json"
+BRIEF_PATH = "data/last_briefing.json"
+OFFSET_PATH = "data/telegram_offset.txt"
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
@@ -34,6 +37,99 @@ def load_seen():
             return set(json.load(f).get("ids", []))
     except (FileNotFoundError, json.JSONDecodeError):
         return set()
+
+
+def save_briefing(jobs_list):
+    """Guarda el orden del briefing con COPIA COMPLETA de cada oferta
+    (descripción incluida) para poder archivar la exacta al marcar 'aplicada'."""
+    data = [{"id": j["id"], "title": j["title"], "company": j["company"],
+             "url": j["url"], "description": (j.get("description") or "")[:12000],
+             "location": j.get("location") or "", "salary": j.get("salary") or "",
+             "tags": (j.get("tags") or [])[:8], "source": j.get("source") or ""}
+            for j in jobs_list[:20]]
+    with open(BRIEF_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+
+
+def load_briefing():
+    try:
+        with open(BRIEF_PATH, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _parse_apply_message(text, brief):
+    """Interpreta 'aplicada 1,3,5' o 'aplique a 1 y 3' o un link de oferta.
+    Devuelve lista de ids de ofertas a marcar como aplicadas."""
+    if not text or not brief:
+        return []
+    t = text.lower().strip()
+    marked = []
+    # patrón: aplicada/apliqué [a] 1,3,5
+    import re
+    m = re.search(r"(?:aplicad[oa]?|apliqu[ée])\s*(?:a|a la|a las)?\s*:?\s*([0-9][0-9,\s+y]*)$", t)
+    if m:
+        for tok in re.findall(r"\d+", m.group(1)):
+            idx = int(tok)
+            if 1 <= idx <= len(brief):
+                marked.append(brief[idx - 1]["id"])
+    else:
+        # link directo de una oferta del briefing
+        for item in brief:
+            url = (item.get("url") or "").lower().rstrip("/")
+            if url and url in t:
+                marked.append(item["id"])
+    return marked
+
+
+def _process_telegram_applications():
+    """Lee los mensajes que el usuario le mandó al bot y marca aplicadas.
+    Devuelve el número de ofertas marcadas."""
+    if not TOKEN or not CHAT_ID:
+        return 0
+    brief = load_briefing()
+    if not brief:
+        return 0
+    offset = 0
+    try:
+        offset = int(open(OFFSET_PATH).read().strip())
+    except Exception:
+        pass
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TOKEN}/getUpdates",
+            params={"offset": offset, "timeout": 2}, timeout=40,
+        )
+        updates = r.json().get("result", [])
+    except Exception as e:
+        print(f"[telegram] getUpdates error: {e}")
+        return 0
+    marked = 0
+    last_id = offset
+    for u in updates:
+        last_id = max(last_id, u.get("update_id", 0))
+        msg = u.get("message") or u.get("edited_message") or {}
+        if str(msg.get("chat", {}).get("id", "")) != str(CHAT_ID):
+            continue
+        text = msg.get("text") or ""
+        ids_to_mark = _parse_apply_message(text, brief)
+        for oid in ids_to_mark:
+            item = next((b for b in brief if b["id"] == oid), None)
+            if item:
+                snapshot = {k: item.get(k) for k in
+                            ("id", "title", "company", "url", "description",
+                             "location", "salary", "tags", "source")}
+                applied.add(oid, company=item.get("company", ""),
+                            title=item.get("title", ""), snapshot=snapshot)
+                marked += 1
+    if last_id:
+        with open(OFFSET_PATH, "w") as f:
+            f.write(str(last_id + 1))
+    if marked:
+        print(f"✅ Marcadas como aplicadas desde Telegram: {marked}")
+    return marked
 
 
 def save_seen(ids):
@@ -53,32 +149,39 @@ def build_briefing(scored, seen, total):
         f"Ofertas revisadas: {total} · Top: {len(apply_now)}🔥 {len(apply)}🟢 {len(review)}🟡",
         "",
     ]
+    num = 0
     if apply_now:
         lines.append(f"🔥 EXCEPTIONAL ({len(apply_now)}) — APPLY NOW")
         for j in apply_now[:5]:
-            lines.append(_offer_line(j, detail=True))
+            num += 1
+            lines.append(_offer_line(j, detail=True, num=num))
         lines.append("")
     if apply:
         lines.append(f"🟢 STRONG ({len(apply)}) — APPLY")
         for j in apply[:8]:
-            lines.append(_offer_line(j))
+            num += 1
+            lines.append(_offer_line(j, num=num))
         lines.append("")
     if review:
         lines.append(f"🟡 SECONDARY ({len(review)}) — REVIEW")
         for j in review[:6]:
-            lines.append(_offer_line(j))
+            num += 1
+            lines.append(_offer_line(j, num=num))
         lines.append("")
     if not apply_now and not apply:
         lines.append("Hoy no hay matches fuertes nuevos. Revisá las REVIEW manualmente.")
+    lines.append("")
+    lines.append("📌 ¿Aplicaste a alguna? Respondé a este chat: 'aplicada 1,3,5' (los números de arriba) y mañana ya no te la vuelvo a mandar. También podés pegar el link de la oferta: 'aplicada <link>'.")
     return "\n".join(lines)
 
 
-def _offer_line(j, detail=False):
+def _offer_line(j, detail=False, num=None):
     sal = f" · 💰 {j.get('salary') or ''}" if j.get("salary") else ""
     marker = j.get("salary_marker", {}).get("marker", "")
-    line = (f"[{j['score']}/100 {j['emoji']}] {j['title']} — {j['company']} ({j['track_label']})"
+    prefix = f"{num}. " if num else ""
+    line = (f"{prefix}[{j['score']}/100 {j['emoji']}] {j['title']} — {j['company']} ({j['track_label']})"
             f"{sal} {marker}\n"
-            f"  {j['url']}")
+            f"   {j['url']}")
     if detail:
         reasons = ", ".join(j.get("reasons", [])[:5])
         pkg = j.get("persona", "")
@@ -119,6 +222,9 @@ def main():
 
 def _main():
     print("🦅 Job Hunter — bot diario v2")
+    marked = _process_telegram_applications()
+    if marked:
+        print(f"  (se excluirán {marked} ofertas ya aplicadas)")
     profile = load_profile()
     keywords_ok = bool(profile.get("skills"))
     if not keywords_ok:
@@ -127,8 +233,11 @@ def _main():
     jobs = fetchers.fetch_all()
     print(f"  {len(jobs)} ofertas únicas")
 
+    applied_ids = applied.ids()
     scored = []
     for j in jobs:
+        if j["id"] in applied_ids:
+            continue  # ya aplicaste: fuera del briefing
         s = matcher.score_offer(j, profile)
         if s["band"] in ("APPLY NOW", "APPLY", "REVIEW"):
             s["id"] = j["id"]
@@ -139,6 +248,7 @@ def _main():
     scored.sort(key=lambda x: (order.get(x["band"], 9), -x["score"]))
 
     seen = load_seen()
+    save_briefing(scored[:20])  # el orden que el usuario ve en el mensaje
     briefing = build_briefing(scored, seen, len(jobs))
     new_ids = [x["id"] for x in scored[:12] if x["id"] not in seen]
     seen.update(x["id"] for x in scored[:12])
