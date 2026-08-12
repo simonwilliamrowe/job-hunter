@@ -31,14 +31,15 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python bot_daily.py
 
-      - name: Guardar estado (ofertas ya vistas)
+      - name: Guardar estado (ofertas ya vistas + aplicadas)
+        continue-on-error: true
         run: |
           git config user.name "Job Hunter Bot"
           git config user.email "jobhunter-bot@users.noreply.github.com"
-          git add data/seen.json
+          git add data/seen.json data/applied.json data/last_briefing.json data/telegram_offset.txt
           if git diff --cached --quiet; then
             echo "Sin cambios en el estado"
           else
-            git commit -m "Actualizar ofertas vistas [bot]"
+            git commit -m "Actualizar estado [bot]"
             git push
           fi
