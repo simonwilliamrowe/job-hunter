@@ -266,7 +266,7 @@ def _main():
                     continue
                 pkg = cvgen.generate_package(profile, job, track=x["track"], out_dir="generated")
                 for f in pkg["files"]:
-                    zf.write(f["path"], os.path.join(pkg["offer_id"], f["name"]))
+                    zf.write(f["path"], os.path.join(pkg.get("dir") or pkg["offer_id"], f["name"]))
         print(f"📦 Paquetes del top 3 → {zip_path}")
 
     sent = False

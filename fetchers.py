@@ -377,8 +377,12 @@ def fetch_himalayas(pages=5, per_page=20):
                 loc_str = ", ".join(str(x) for x in loc[:4])
                 if not loc_str:
                     loc_str = "Remote (worldwide)"
+                guid = j.get("guid") or ""
+                # el guid puede ser una URL completa: limpiar para que el ID
+                # sea un nombre de carpeta válido (sin / ni :)
+                guid_clean = re.sub(r"[^a-z0-9]+", "-", (guid or "").lower()).strip("-")
                 out.append({
-                    "id": f"him-{j.get('guid') or _norm(title + str(j.get('companyName', '')))}",
+                    "id": f"him-{guid_clean or _norm(title + str(j.get('companyName', '')))}",
                     "title": title.strip(),
                     "company": (j.get("companyName") or "").strip(),
                     "location": loc_str,

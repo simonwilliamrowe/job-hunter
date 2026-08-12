@@ -286,7 +286,7 @@ def generate_package(profile, job, track=None, out_dir="generated"):
     if not persona and scoring["persona"] in personas:
         persona = personas[scoring["persona"]]
 
-    safe_dir = os.path.join(out_dir, job["id"])
+    safe_dir = os.path.join(out_dir, _slug(job["id"]) or "oferta")
     os.makedirs(safe_dir, exist_ok=True)
 
     cv_text = _build_cv_text(profile, persona, job)
@@ -321,6 +321,7 @@ def generate_package(profile, job, track=None, out_dir="generated"):
 
     return {
         "offer_id": job["id"],
+        "dir": _slug(job["id"]) or "oferta",
         "track": track_id,
         "track_label": scoring["track_label"],
         "persona": persona.get("label", track_id),
