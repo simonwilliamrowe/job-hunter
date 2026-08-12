@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 import ai
 import applied as applied_mod
 import cvgen
+import dismissed as dismissed_mod
 import fetchers
 import matcher
 import tracker as tracker_mod
@@ -54,10 +55,11 @@ def _get_jobs(force=False):
 
 def _enriched(jobs, profile):
     applied_ids = applied_mod.ids()
+    dismissed_ids = dismissed_mod.ids()
     out = []
     for j in jobs:
-        if j["id"] in applied_ids:
-            continue  # ya aplicaste: no se muestra nunca más
+        if j["id"] in applied_ids or j["id"] in dismissed_ids:
+            continue  # aplicada o descartada: no se muestra nunca más
         s = matcher.score_offer(j, profile)
         s["matched"] = matcher.family_match(j, profile)
         out.append({
@@ -254,6 +256,27 @@ def add_applied(body: dict):
 @app.delete("/api/applied/{offer_id}")
 def remove_applied(offer_id: str):
     return {"ok": True, "applied": applied_mod.remove(offer_id)}
+
+
+@app.get("/api/dismissed")
+def get_dismissed():
+    return dismissed_mod.load()
+
+
+@app.post("/api/dismissed")
+def add_dismissed(body: dict):
+    items = dismissed_mod.add(
+        offer_id=body.get("offer_id", ""),
+        company=body.get("company", ""),
+        title=body.get("title", ""),
+        source=body.get("source", ""),
+    )
+    return {"ok": True, "dismissed": items}
+
+
+@app.delete("/api/dismissed/{offer_id}")
+def remove_dismissed(offer_id: str):
+    return {"ok": True, "dismissed": dismissed_mod.remove(offer_id)}
 
 
 @app.get("/api/hot-keywords")

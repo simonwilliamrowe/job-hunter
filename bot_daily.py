@@ -9,6 +9,7 @@ NUNCA se postula solo: la IA encuentra y prepara, vos aprobás y aplicás.
 """
 import json
 import os
+import re
 import sys
 import zipfile
 from datetime import date
@@ -19,6 +20,7 @@ import requests
 
 import applied
 import cvgen
+import dismissed
 import fetchers
 import matcher
 import tracker
@@ -58,6 +60,70 @@ def load_briefing():
             return d if isinstance(d, list) else []
     except (FileNotFoundError, json.JSONDecodeError):
         return []
+
+
+DISMISS_RE = re.compile(
+    r"(?:descart\w*|no|fuera|quita|quit\w*|saca|elimin\w*)\s*(?:a|la|las|el)?\s*:?\s*([0-9][0-9,\s+y]*)$",
+    re.I)
+
+
+def _parse_dismiss_message(text, brief):
+    """Interpreta 'descartar 2,4' o 'no 3' o 'fuera 1 y 5'.
+    Devuelve lista de ids de ofertas a descartar."""
+    if not text or not brief:
+        return []
+    m = DISMISS_RE.search(text.strip())
+    if not m:
+        return []
+    marked = []
+    for tok in re.findall(r"\d+", m.group(1)):
+        idx = int(tok)
+        if 1 <= idx <= len(brief):
+            marked.append(brief[idx - 1]["id"])
+    return marked
+
+
+def _process_telegram_dismissals():
+    """Lee mensajes de descarte y los guarda. Devuelve nº de descartados."""
+    if not TOKEN or not CHAT_ID:
+        return 0
+    brief = load_briefing()
+    if not brief:
+        return 0
+    offset = 0
+    try:
+        offset = int(open(OFFSET_PATH).read().strip())
+    except Exception:
+        pass
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TOKEN}/getUpdates",
+            params={"offset": offset, "timeout": 2}, timeout=40,
+        )
+        updates = r.json().get("result", [])
+    except Exception as e:
+        print(f"[telegram] getUpdates error: {e}")
+        return 0
+    marked = 0
+    last_id = offset
+    for u in updates:
+        last_id = max(last_id, u.get("update_id", 0))
+        msg = u.get("message") or u.get("edited_message") or {}
+        if str(msg.get("chat", {}).get("id", "")) != str(CHAT_ID):
+            continue
+        text = msg.get("text") or ""
+        ids_to_dismiss = _parse_dismiss_message(text, brief)
+        for oid in ids_to_dismiss:
+            item = next((b for b in brief if b["id"] == oid), None)
+            if item:
+                dismissed.add(oid, company=item.get("company", ""), title=item.get("title", ""))
+                marked += 1
+    if last_id:
+        with open(OFFSET_PATH, "w") as f:
+            f.write(str(last_id + 1))
+    if marked:
+        print(f"✅ Descartadas desde Telegram: {marked}")
+    return marked
 
 
 def _parse_apply_message(text, brief):
@@ -171,7 +237,8 @@ def build_briefing(scored, seen, total):
     if not apply_now and not apply:
         lines.append("Hoy no hay matches fuertes nuevos. Revisá las REVIEW manualmente.")
     lines.append("")
-    lines.append("📌 ¿Aplicaste a alguna? Respondé a este chat: 'aplicada 1,3,5' (los números de arriba) y mañana ya no te la vuelvo a mandar. También podés pegar el link de la oferta: 'aplicada <link>'.")
+    lines.append("📌 ¿Aplicaste a alguna? Respondé: 'aplicada 1,3,5' y mañana ya no te la mando.")
+    lines.append("📌 ¿Alguna no te interesa? Respondé: 'descartar 2,4' (o 'no 2') y la elimino para siempre.")
     return "\n".join(lines)
 
 
@@ -225,6 +292,9 @@ def _main():
     marked = _process_telegram_applications()
     if marked:
         print(f"  (se excluirán {marked} ofertas ya aplicadas)")
+    dismissed_n = _process_telegram_dismissals()
+    if dismissed_n:
+        print(f"  (se excluirán {dismissed_n} ofertas descartadas)")
     profile = load_profile()
     keywords_ok = bool(profile.get("skills"))
     if not keywords_ok:
@@ -234,10 +304,11 @@ def _main():
     print(f"  {len(jobs)} ofertas únicas")
 
     applied_ids = applied.ids()
+    dismissed_ids = dismissed.ids()
     scored = []
     for j in jobs:
-        if j["id"] in applied_ids:
-            continue  # ya aplicaste: fuera del briefing
+        if j["id"] in applied_ids or j["id"] in dismissed_ids:
+            continue  # ya aplicaste o la descartaste: fuera del briefing
         s = matcher.score_offer(j, profile)
         if s["band"] in ("APPLY NOW", "APPLY", "REVIEW"):
             s["id"] = j["id"]
