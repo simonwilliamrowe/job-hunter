@@ -40,6 +40,30 @@ RESEARCH_KW = ["research", "analyst", "analysis", "tokenomics", "due diligence",
                "dashboard", "metrics", "nansen", "dune", "glassnode", "on-chain analysis",
                "research assistant", "researcher"]
 
+# Trading junior/entry-level: detecta ofertas tipo "Junior Crypto Trader",
+# "Entry Level Trader", "Trading Analyst (Junior)" etc. Cubre conceptos
+# técnicos (TA, indicators, order types, leverage, risk management) y
+# el lado de mercados (market, limit, spot, perp, futures, charts).
+TRADING_KW = ["trader", "trading", "trade", "trades", "market analysis", "technical analysis",
+              "chart", "charts", "charting", "candlestick", "candlesticks", "indicator",
+              "indicators", "rsi", "macd", "moving average", "moving averages", "fibonacci",
+              "support", "resistance", "trend", "trends", "breakout", "pattern", "patterns",
+              "volume", "market order", "market orders", "limit order", "limit orders",
+              "stop loss", "take profit", "leverage", "long", "short", "long position",
+              "short position", "spot", "perp", "perpetual", "perpetuals", "futures",
+              "options", "derivative", "derivatives", "order book", "orderbook",
+              "liquidity", "slippage", "spread", "spreads", "position size", "position sizing",
+              "risk management", "risk reward", "stop loss", "trailing stop", "swing trade",
+              "day trade", "day trading", "swing trading", "scalping", "scalp", "scalper",
+              "trade journal", "trading journal", "backtest", "backtesting", "strategy",
+              "strategies", "trading strategy", "trading strategies", "trade setup",
+              "price action", "market structure", "tradingview", "trading view", "binance",
+              "bybit", "okx", "bitfinex", "bitmex", "deribit", "order execution",
+              "exchange", "exchanges", "market maker", "market making", "trading desk",
+              "trading floor", "proprietary", "prop trading", "prop firm", "alpha",
+              "beta", "volatility", "vol", "open interest", "funding rate", "funding rates",
+              "liquidation", "liquidations"]
+
 FINTECH_KW = ["fintech", "payment", "payments", "banking", "bank", "remittance", "sepa",
               "swift", "aml", "fraud", "chargeback", "reconciliation", "accounting", "risk",
               "compliance", "money transfer", "merchant", "financial", "finance", "kym",
@@ -263,6 +287,10 @@ TRACKS = {
         "label": "Junior Research", "persona": "junior_research", "priority": 1,
         "weights": {"research": 28, "crypto": 14, "english": 10, "remote": 10, "latam": 8,
                     "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
+    "trading_entry": {
+        "label": "Crypto Trading (Entry/Junior)", "persona": "trading_entry", "priority": 1,
+        "weights": {"trading": 30, "crypto": 14, "research": 8, "english": 10, "remote": 10,
+                    "latam": 8, "salary": 10, "tools": 4, "seniority": 10, "spanish": 6}},
     "customer_support": {
         "label": "Customer Support", "persona": "customer_support", "priority": 1,
         "weights": {"support": 30, "fintech": 10, "english": 12, "remote": 10, "latam": 8,
@@ -302,6 +330,19 @@ JUNIOR_TITLE = re.compile(
 MANAGER_TECH = re.compile(
     r"\bmanager\b.{0,20}\b(technical|support|operations|team|office|program|"
     r"project|engineering|department)\b", re.I)
+
+# Regla dura: títulos de trading con seniority alta o que piden experiencia
+# avanzada -> IGNORE directo. El candidato es entry/junior, no senior trader.
+# Cubre: Senior/Lead/Head/Principal/Chief Trader, "Experienced Trader",
+# "Professional Trader", "Trading Manager/Director/Head of Trading", etc.
+SENIOR_TRADER_TITLE = re.compile(
+    r"\b(senior|lead|head of|principal|chief|experienced|professional|"
+    r"senior level|expert|advanced|seasoned|proven)\b[^,]{0,30}\b(trader|trading)\b|"
+    r"\b(trader|trading)\b[^,]{0,30}\b(senior|lead|head|principal|chief|"
+    r"experienced|professional|manager|director|expert|advanced)\b|"
+    r"\bhead of trading\b|\blead trader\b|\bchief trader\b|"
+    r"\bproprietary trader\b|\bprop trader\b|"
+    r"\b(senior|lead|head)\b[^,]{0,15}\bquant\b", re.I)
 
 # Regla dura de ubicación: solo remoto GLOBAL (para poder aplicar desde Paraguay)
 REMOTE_WORDS = re.compile(
@@ -354,6 +395,9 @@ def _hard_filters(job, title, text, loc):
         return 0, "IGNORE"
     # 1) bloquear títulos de desarrollo/ingeniería
     if TECH_TITLE_BLOCK.search(title):
+        return 0, "IGNORE"
+    # 1b) bloquear títulos de trading senior/experienced (candidato es entry-level)
+    if SENIOR_TRADER_TITLE.search(title):
         return 0, "IGNORE"
     # 2) senioridad alta sin junior: máximo REVIEW
     if SENIOR_TITLE.search(title) and not JUNIOR_TITLE.search(title):
@@ -478,6 +522,8 @@ def _component(kind, title, text, parsed, salary_cfg, job):
         return _kw_count(text, COMMUNITY_KW, title, 3.5, 8)
     if kind == "research":
         return _kw_count(text, RESEARCH_KW, title, 3.5, 9)
+    if kind == "trading":
+        return _kw_count(text, TRADING_KW, title, 3.5, 9)
     if kind == "fintech":
         return _kw_count(text, FINTECH_KW, title, 3.5, 8)
     if kind == "ops":

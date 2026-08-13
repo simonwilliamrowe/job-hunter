@@ -20,6 +20,40 @@ def _slug(s):
     return re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")[:40] or "oferta"
 
 
+def _load_guidelines():
+    """Lee data/cover_letter_guidelines.md si existe. Devuelve string o ''."""
+    paths = [
+        os.path.join(os.path.dirname(__file__), "data", "cover_letter_guidelines.md"),
+        "data/cover_letter_guidelines.md",
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                pass
+    return ""
+
+
+def _guidelines_section(text, header_prefix):
+    """Extrae una sección (por ## o ### header) del guidelines md."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    out, capturing = [], False
+    for ln in lines:
+        s = ln.strip()
+        if not capturing and (s.startswith("## ") or s.startswith("### ")) and header_prefix.lower() in s.lower():
+            capturing = True
+            continue
+        if capturing and (s.startswith("## ") or s.startswith("### ")):
+            break
+        if capturing:
+            out.append(ln)
+    return "\n".join(out).strip()
+
+
 def _exp_map(profile):
     m = {}
     for e in profile.get("experience", []) + profile.get("independent_experience", []):
@@ -180,29 +214,176 @@ def _build_docx(cv_text, path):
     doc.save(path)
 
 
-def _cover_letter(profile, persona, job, ai_text=None):
+def _wrap_paragraphs(text, width=95):
+    """Word-wrap cada bloque separado por doble \\n a 'width' chars por línea.
+    Devuelve texto con saltos de línea simples dentro de cada párrafo y
+    exactamente UNA línea en blanco entre párrafos (formato carta profesional).
+
+    Estructura esperada: header (2 líneas) \\n\\n saludo \\n\\n body... \\n\\n footer.
+    El header y el footer se preservan tal cual; el saludo y los párrafos del
+    body se wrappean a 'width' chars/line.
+    """
+    if not text:
+        return ""
+    import textwrap
+    blocks = text.split("\n\n")
+    out_blocks = []
+    for i, block in enumerate(blocks):
+        b = block.strip()
+        if not b:
+            continue
+        # Primer bloque = header (nombre + contacto en 2 líneas) — preservar
+        if i == 0 and "\n" in b:
+            out_blocks.append(b)
+        # Último bloque = footer ("Sincerely,\\nnombre") — preservar
+        elif i == len(blocks) - 1 and "\n" in b:
+            out_blocks.append(b)
+        # Saludo: 1 línea corta, no wrappear
+        elif b.startswith("Dear ") and len(b) <= width:
+            out_blocks.append(b)
+        # Párrafo del body: wrap
+        else:
+            wrapped = "\n".join(textwrap.wrap(b, width=width, break_long_words=False,
+                                              break_on_hyphens=False))
+            out_blocks.append(wrapped)
+    return "\n\n".join(out_blocks)
+
+
+def _cover_letter(profile, persona, job, ai_text=None, track_id=None):
     if ai_text:
-        return ai_text
+        # Even with AI text, normalize paragraph spacing.
+        return _wrap_paragraphs(ai_text, width=95)
     name = profile.get("name", "")
     contact = " | ".join(x for x in [profile.get("email", ""), profile.get("location", "")] if x)
+    title = job.get("title", "")
+    company = job.get("company", "")
+
+    # Detectar si el track es trading para usar guidelines de trading
+    is_trading = (track_id == "trading_entry") or ("trader" in title.lower() or "trading" in title.lower())
+
+    # Cargar guidelines y extraer secciones relevantes
+    guidelines = _load_guidelines()
+    if is_trading:
+        trading_section = _guidelines_section(guidelines, "2.1 Crypto Trading")
+        prohibited = _guidelines_section(guidelines, "Frases prohibidas")
+        connections = _guidelines_section(guidelines, "Conexiones narrativas")
+    else:
+        trading_section = ""
+        prohibited = ""
+        connections = ""
+
+    # Construir carta según el track
+    if is_trading and trading_section:
+        # Carta específica para trading entry-level
+        # Respetar: "knowledgeable enthusiast", "not a professional trader", WatersAbove
+        watersabove = next((c for c in profile.get("certifications", [])
+                           if "watersabove" in c.lower()), None)
+        if watersabove:
+            ws_name = watersabove.split(" — ")[0].strip()
+        else:
+            ws_name = "WatersAbove Crypto & Trading Course"
+
+        # Párrafos cortos (3-5 oraciones max cada uno) con foco claro
+        p1 = (
+            f"I'm writing to apply for the {title} position at {company}. "
+            f"This role is a natural next step for me: I've spent the last 7 "
+            f"years deeply embedded in the crypto ecosystem — not as a passive "
+            f"observer, but as someone who actively studies the markets, evaluates "
+            f"projects through fundamentals, follows chart action, and helps others "
+            f"understand the space. When I saw that you're looking for someone "
+            f"with genuine interest in crypto trading, the willingness to learn, "
+            f"and the discipline to grow in a structured environment, I knew this "
+            f"was the right fit."
+        )
+        p2 = (
+            f"My first professional exposure to online trading platforms was at "
+            f"Binary Options Product Review (2016–2018), where I onboarded "
+            f"~200–300 users to a binary options trading platform via live chat "
+            f"and Skype, explaining order execution, platform mechanics and basic "
+            f"risk warnings before they placed their first trades. I've since "
+            f"complemented that foundation with the {ws_name}, "
+            f"where I built a solid theoretical and practical base in technical "
+            f"analysis, chart patterns, indicators (RSI, MACD, moving averages, "
+            f"volume), Fibonacci retracements, support and resistance (micro and "
+            f"macro), market and limit orders, leverage mechanics, position sizing "
+            f"and risk management."
+        )
+        p3 = (
+            f"What I bring beyond the textbook is 7+ years of continuous, "
+            f"self-directed exposure to the crypto markets themselves. I "
+            f"personally operate CEXs and DEXs (Binance, Kraken, KuCoin, Bitget, "
+            f"SundaeSwap, Minswap, PancakeSwap). I do my own on-chain analysis via "
+            f"Etherscan, Solscan and Cardanoscan — inspecting wallet activity, "
+            f"transaction flows and token movements. I evaluate projects through "
+            f"tokenomics, vesting schedules, market capitalisation and liquidity on "
+            f"CoinGecko, CoinMarketCap and DeFiLlama, and I chart regularly on "
+            f"TradingView, identifying trends, support/resistance levels and basic "
+            f"chart patterns. I participated in Bitcointalk bounty programmes, "
+            f"completed ~10 technical whitepaper translations EN↔ES, virtually "
+            f"attended the Cardano Summit 2022, and hold the Cardano Blockchain "
+            f"Fundamentals certification."
+        )
+        p4 = (
+            f"I'm a fast learner with a process-driven mindset: at Larum Studio "
+            f"(the AI & visual systems venture I co-founded in December 2025) I "
+            f"built Python/OpenAI API tools to process and analyse image batches, "
+            f"created an AI-assisted system for structured image hierarchy "
+            f"analysis, and designed automated workflows with quality controls — "
+            f"the same analytical, systematic approach that translates directly "
+            f"into disciplined trading, journaling and backtesting workflows."
+        )
+        p5 = (
+            f"I want to be transparent: I'm not a professional trader, and I don't "
+            f"claim years of live P&L. What I am is a knowledgeable enthusiast "
+            f"with a strong foundational understanding, 7+ years of self-directed "
+            f"practice, real familiarity with the tools and platforms, and a "
+            f"genuine passion for crypto markets. I'm fully remote-ready from "
+            f"Paraguay (GMT-3, flexible hours, comfortable with international "
+            f"teams), and the combination of comprehensive onboarding, ongoing "
+            f"mentorship, hands-on platform experience and a clear development "
+            f"path is exactly the structured environment I want to grow in."
+        )
+        p6 = (
+            f"{_work_ethic_short(profile)} I'd love the chance to discuss how I "
+            f"can contribute to {company}. Thank you for your time and "
+            f"consideration."
+        )
+
+        # Ensamblar con doble \n entre párrafos (luego _wrap_paragraphs normaliza
+        # el word-wrap a 95 chars y deja EXACTAMENTE una línea en blanco entre
+        # párrafos — formato profesional de carta).
+        body = "\n\n".join([p1, p2, p3, p4, p5, p6])
+        # Header con nombre y contacto en líneas separadas (formato carta)
+        # Usamos un separador único para que _wrap_paragraphs lo distinga
+        # del body y no lo wrapee ni lo fusione con el saludo.
+        header = f"{name}\n{contact}"
+        footer = f"Sincerely,\n{name}"
+        letter = f"{header}\n\nDear Hiring Team at {company},\n\n{body}\n\n{footer}"
+        return _wrap_paragraphs(letter, width=95)
+
+    # Carta genérica (default, todos los demás tracks)
     achievements = profile.get("achievements", [])[:3]
-    ach_line = " ".join(f"• {a}" for a in achievements)
-    return (
-        f"{name}\n{contact}\n\n"
-        f"Dear Hiring Team at {job.get('company', '')},\n\n"
-        f"I'm writing to apply for the {job.get('title', '')} position. "
+    ach_line = "; ".join(achievements)
+    p1 = (
+        f"I'm writing to apply for the {title} position at {company}. "
         f"I'm a bilingual (English/Spanish) professional based in Paraguay, fully "
-        f"set up for remote work with flexible hours overlapping US/EU time zones.\n\n"
+        f"set up for remote work with flexible hours overlapping US/EU time zones."
+    )
+    p2 = (
         f"My background combines 7+ years of hands-on crypto/Web3 experience — "
         f"self-custody, wallets, exchanges, DeFi, transaction troubleshooting and "
-        f"community support — with direct customer-facing work supporting "
-        f"200-300 users in financial products.\n\n"
-        f"Selected highlights:\n{ach_line}\n\n"
-        f"{_work_ethic_short(profile)}\n\n"
-        f"I'd love the chance to discuss how I can contribute to {job.get('company', '')}. "
-        f"Thank you for your time and consideration.\n\n"
-        f"Sincerely,\n{name}"
+        f"community support — with direct customer-facing work supporting 200-300 "
+        f"users in financial products. Selected highlights: {ach_line}."
     )
+    p3 = (
+        f"{_work_ethic_short(profile)} I'd love the chance to discuss how I can "
+        f"contribute to {company}. Thank you for your time and consideration."
+    )
+    body = "\n\n".join([p1, p2, p3])
+    header = f"{name}\n{contact}"
+    footer = f"Sincerely,\n{name}"
+    letter = f"{header}\n\nDear Hiring Team at {company},\n\n{body}\n\n{footer}"
+    return _wrap_paragraphs(letter, width=95)
 
 
 def _answers_for(profile, job):
@@ -327,7 +508,7 @@ def generate_package(profile, job, track=None, out_dir="generated"):
         cv_pdf = None
 
     ai_cover = ai.ai_rewrite(profile, job, "cover")
-    cover = _cover_letter(profile, persona, job, ai_text=ai_cover)
+    cover = _cover_letter(profile, persona, job, ai_text=ai_cover, track_id=track_id)
     cover_path = os.path.join(safe_dir, "cover_letter.txt")
     with open(cover_path, "w", encoding="utf-8") as f:
         f.write(cover)
