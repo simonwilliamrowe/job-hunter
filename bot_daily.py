@@ -1,13 +1,16 @@
 """
-Job Hunter - BOT DIARIO v3 (app viva en GitHub Actions).
+Job Hunter - BOT DIARIO v4 (app viva en GitHub Actions).
 
-Cambios v3:
-- BUGFIX: lee Telegram UNA sola vez y aplica AMBOS parsers (aplicada + descarta)
-  sobre cada mensaje. Antes, _process_telegram_applications corría primero,
-  leía todos los mensajes, AVANZABA el offset y se saltaba los mensajes de
-  descarte que venían después.
-- Mantiene el resto del comportamiento v2.1 (logs verbosos, ranking top
-  ofertas siempre, etc.)
+Cambios v4 (FIX DEL BUG CRÍTICO DE OFFSET):
+- ANTES: el bot leía todos los mensajes y avanzaba el offset incluso si
+  ningún mensaje matcheaba con "aplicada" o "descarta". Esto causaba que
+  los mensajes del usuario se perdieran para siempre si estaban en el
+  mismo batch que un mensaje de aplicada (o cualquier otro update).
+
+- AHORA: el bot SOLO avanza el offset de los mensajes que SÍ procesó
+  (que matchearon con un patrón). Los mensajes que no matchean quedan
+  pendientes para el próximo run. Esto garantiza que un "descartar 2,3"
+  que llegue mezclado con otros mensajes nunca se pierda.
 """
 import json
 import os
@@ -62,7 +65,7 @@ def load_briefing():
         return []
 
 
-# Patrones regex
+# Patrones regex (mismos que v3)
 DISMISS_RE = re.compile(
     r"(?:descart\w*|no|fuera|quita|quit\w*|saca|elimin\w*)\s*"
     r"(?:a|la|las|el)?\s*:?\s*"
@@ -75,7 +78,6 @@ APPLY_RE = re.compile(
 
 
 def _parse_dismiss_message(text, brief):
-    """'descartar 2,4' / 'no 3' / 'fuera 1 y 5' → lista de ids."""
     if not text or not brief:
         return []
     m = DISMISS_RE.search(text.strip())
@@ -90,7 +92,6 @@ def _parse_dismiss_message(text, brief):
 
 
 def _parse_apply_message(text, brief):
-    """'aplicada 1,3,5' / 'aplique a 1 y 3' / link → lista de ids."""
     if not text or not brief:
         return []
     t = text.lower().strip()
@@ -110,11 +111,9 @@ def _parse_apply_message(text, brief):
 
 
 def _process_telegram_messages():
-    """Lee mensajes de Telegram UNA sola vez, aplica ambos parsers
-    (aplicada + descarta) sobre cada uno, y actualiza el offset UNA sola vez.
-    Esto evita el bug donde _process_telegram_applications leía todos
-    los mensajes y avanzaba el offset, dejando _process_telegram_dismissals
-    sin nada que leer."""
+    """Lee mensajes de Telegram UNA sola vez, aplica AMBOS parsers
+    (aplicada + descarta), y SOLO avanza el offset de los mensajes que
+    SÍ procesó. Los mensajes no matcheados quedan pendientes."""
     if not TOKEN or not CHAT_ID:
         print("[telegram] Sin TOKEN o CHAT_ID — no se procesan mensajes")
         return 0, 0
@@ -130,7 +129,8 @@ def _process_telegram_messages():
     try:
         r = requests.get(
             f"https://api.telegram.org/bot{TOKEN}/getUpdates",
-            params={"offset": offset, "timeout": 2}, timeout=40,
+            params={"offset": offset, "timeout": 2, "allowed_updates": ["message", "edited_message"]},
+            timeout=40,
         )
         data = r.json()
         updates = data.get("result", [])
@@ -142,19 +142,19 @@ def _process_telegram_messages():
 
     applied_marked = 0
     dismissed_marked = 0
-    last_id = offset
+    processed_update_ids = []  # IDs de updates que SÍ se procesaron
     print(f"[telegram] Leyendo {len(updates)} updates desde offset {offset}...")
+
     for u in updates:
-        last_id = max(last_id, u.get("update_id", 0))
+        update_id = u.get("update_id", 0)
         msg = u.get("message") or u.get("edited_message") or {}
         chat_id_msg = str(msg.get("chat", {}).get("id", ""))
         if chat_id_msg != str(CHAT_ID):
-            print(f"[telegram]   update {u.get('update_id', 0)}: chat_id={chat_id_msg} (no matchea, SKIP)")
+            print(f"[telegram]   update {update_id}: chat_id={chat_id_msg} (no matchea, SKIP)")
             continue
         text = msg.get("text") or ""
-        print(f"[telegram]   mensaje: {text!r}")
+        print(f"[telegram]   mensaje (update {update_id}): {text!r}")
 
-        # Aplicar AMBOS parsers sobre el mismo mensaje
         # 1) Intentar como descarte
         ids_dismiss = _parse_dismiss_message(text, brief)
         if ids_dismiss:
@@ -166,9 +166,10 @@ def _process_telegram_messages():
                                   title=item.get("title", ""))
                     dismissed_marked += 1
                     print(f"[telegram]       ✓ descartada: {item.get('title','')[:50]}")
-            continue  # si fue descarte, no procesar como aplicada
+            processed_update_ids.append(update_id)
+            continue
 
-        # 2) Si no fue descarte, intentar como aplicada
+        # 2) Intentar como aplicada
         ids_apply = _parse_apply_message(text, brief)
         if ids_apply:
             print(f"[telegram]     → APLICAR: {ids_apply}")
@@ -182,22 +183,27 @@ def _process_telegram_messages():
                                 title=item.get("title", ""), snapshot=snapshot)
                     applied_marked += 1
                     print(f"[telegram]       ✓ aplicada: {item.get('title','')[:50]}")
+            processed_update_ids.append(update_id)
             continue
 
-        # 3) Si no matcheó ninguno, log
-        print(f"[telegram]     no matchea patrón de aplicada ni descarta")
+        # 3) No matcheó: NO avanzar el offset, queda pendiente
+        print(f"[telegram]     no matchea → queda PENDIENTE para próximo run")
 
-    # ACTUALIZAR OFFSET UNA SOLA VEZ
-    if last_id:
+    # Solo actualizar el offset si procesamos ALGO
+    if processed_update_ids:
+        new_offset = max(processed_update_ids) + 1
         with open(OFFSET_PATH, "w") as f:
-            f.write(str(last_id + 1))
+            f.write(str(new_offset))
+        print(f"[telegram] Offset actualizado: {offset} → {new_offset}")
+    else:
+        print(f"[telegram] No se actualizó el offset (ningún mensaje procesado)")
 
     if applied_marked:
         print(f"✅ Marcadas como aplicadas: {applied_marked}")
     if dismissed_marked:
         print(f"✅ Marcadas como descartadas: {dismissed_marked}")
     if not applied_marked and not dismissed_marked:
-        print(f"[telegram] Ningún mensaje procesado")
+        print(f"[telegram] Ningún mensaje procesado en este run")
 
     return applied_marked, dismissed_marked
 
@@ -290,10 +296,10 @@ def main():
 
 
 def _main():
-    print("🦅 Job Hunter — bot diario v3 (fix aplicado+descarta unificado)")
+    print("🦅 Job Hunter — bot diario v4 (fix: offset solo avanza con matches)")
     print(f"  Estado previo: applied={len(applied.ids())} | dismissed={len(dismissed.ids())}")
 
-    # 1) Procesar TODOS los mensajes de Telegram en una sola pasada
+    # 1) Procesar mensajes de Telegram
     applied_marked, dismissed_marked = _process_telegram_messages()
     if applied_marked or dismissed_marked:
         print(f"  Procesados: {applied_marked} aplicadas + {dismissed_marked} descartadas")
@@ -307,7 +313,7 @@ def _main():
     jobs = fetchers.fetch_all()
     print(f"  {len(jobs)} ofertas únicas")
 
-    # 3) Filtrar aplicadas/descartadas, matchear el resto
+    # 3) Filtrar y matchear
     applied_ids = applied.ids()
     dismissed_ids = dismissed.ids()
     print(f"  Filtro: {len(applied_ids)} aplicadas + {len(dismissed_ids)} descartadas")
@@ -326,18 +332,18 @@ def _main():
     scored.sort(key=lambda x: (order.get(x["band"], 9), -x["score"]))
     print(f"  Matcheadas: {len(scored)} ({sum(1 for s in scored if s['band']=='APPLY NOW')} APPLY NOW, {sum(1 for s in scored if s['band']=='APPLY')} APPLY, {sum(1 for s in scored if s['band']=='REVIEW')} REVIEW)")
 
-    # 4) Guardar briefing y construir mensaje
+    # 4) Guardar briefing
     save_briefing(scored[:20])
     briefing = build_briefing(scored, len(jobs))
 
-    # 5) Actualizar seen.json (solo tracking, no filtra)
+    # 5) Actualizar seen.json (solo tracking)
     seen = load_seen()
     seen.update(x["id"] for x in scored[:12])
     save_seen(seen)
 
     print("\n" + briefing + "\n")
 
-    # 6) Generar ZIP
+    # 6) ZIP
     zip_path = None
     if scored:
         zip_path = "digest.zip"
