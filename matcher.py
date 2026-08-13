@@ -118,18 +118,106 @@ SPANISH_MARKERS = {
     "bueno", "buena", "gran", "grande", "persona", "personas", "idioma",
 }
 
+# Marcadores de idiomas que el candidato NO habla.
+# El bot debe BLOQUEAR ofertas en estos idiomas (no aplicar).
+GERMAN_MARKERS = {
+    # palabras alemanas comunes en ofertas
+    "und", "der", "die", "das", "wir", "sie", "mit", "von", "für", "ist",
+    "sind", "auf", "bei", "nicht", "auch", "kunden", "kunde", "aufgaben",
+    "erfahrung", "kenntnisse", "bewerbung", "stelle", "stellenangebot",
+    "mitarbeiter", "unternehmen", "arbeit", "beruf", "tätigkeiten", "anforderungen",
+    "homeoffice", "deutsch", "englisch", "sprachkenntnisse", "muttersprache",
+    "team", "abteilung", "bereich", "kenntnisse", "quereinsteiger",
+    "bewerben", "vollzeit", "teilzeit", "festanstellung", "praktikum",
+    "ausbildung", "studium", "berufserfahrung", "wechsel", "möglichkeit",
+    "gerne", "freuen", "kennenzulernen", "interessiert", "anfragen", "ihre",
+    "ihnen", "unsere", "unser", "einem", "einer", "eines", "werden", "sollten",
+    "können", "müssen", "dürfen", "wollen", "möchten", "gerne", "bitte",
+    "vielen", "dank", "kontakt", "anschrift", "telefon", "bewerbungsschreiben",
+    "lebenslauf", "zeugnisse", "qualifikation", "weiterbildung", "gehalt",
+    "verhandlung", "leistungen", "anstellung", "vertrag", "woche", "monat",
+    "jahr", "stunde", "stunden", "täglich", "wochentags", "pendeln",
+}
 
-def is_english(desc):
-    """Detecta si el anuncio está en inglés. Si no hay señales claras de
-    español, asume inglés (los anuncios remotos globales son en inglés)."""
+FRENCH_MARKERS = {
+    "et", "le", "la", "les", "des", "un", "une", "avec", "pour", "par",
+    "nous", "vous", "ils", "elles", "est", "sont", "être", "avoir",
+    "expérience", "poste", "entreprise", "candidature", "salaire", "cdi", "cdd",
+    "français", "anglais", "équipe", "département", "télétravail", "embauche",
+    "intérim", "stage", "alternance", "compétences", "qualification",
+    "responsabilités", "profil", "recherchons", "cherchons", "souhaitons",
+    "désirons", "postuler", "embaucher", "rémunération", "avantages",
+    "mutuelle", "transport", "tickets", "restaurant", "cadre", "employé",
+}
+
+ITALIAN_MARKERS = {
+    "e", "il", "la", "di", "del", "della", "con", "per", "da", "in", "su",
+    "noi", "voi", "loro", "essere", "avere", "lavoro", "lavorare",
+    "esperienza", "azienda", "stipendio", "retribuzione", "collaborazione",
+    "italiano", "inglese", "squadra", "dipartimento", "smartworking",
+    "remoto", "presenza", "ufficio", "cliente", "clienti", "fornitore",
+    "fornitori", "contratto", "tempo", "indeterminato", "determinato",
+    "stage", "tirocinio", "apprendistato", "competenze", "qualifiche",
+    "responsabilità", "mansioni", "ricerchiamo", "cerchiamo", "desideriamo",
+    "candidatura", "inviare", "colloquio", "conoscenza", "madrelingua",
+}
+
+PORTUGUESE_MARKERS = {
+    "e", "o", "a", "os", "as", "de", "do", "da", "dos", "das", "com", "por",
+    "para", "em", "no", "na", "nos", "nas", "se", "que", "não", "são",
+    "trabalho", "trabalhar", "empresa", "experiência", "salário", "cargo",
+    "vaga", "candidatura", "equipe", "departamento", "remoto", "presencial",
+    "escritório", "cliente", "clientes", "fornecedor", "contrato",
+    "indeterminado", "determinado", "estágio", "trainee", "jovem",
+    "aprendiz", "competências", "habilidades", "requisitos", "responsabilidades",
+    "procuramos", "buscamos", "desejável", "desejamos", "enviar", "conhecimento",
+    "português", "inglês", "espanhol", "língua", "fluente", "nativo",
+}
+
+
+def detect_language(desc):
+    """Detecta el idioma del anuncio. Devuelve uno de:
+    'spanish', 'english', 'german', 'french', 'italian', 'portuguese', 'unknown'.
+
+    Estrategia: contar marcadores de cada idioma. Si hay señales claras de
+    un idioma no soportado, devolverlo (para que el caller pueda bloquear).
+    Si no hay señales claras de NINGÚN idioma, devolver 'english' (asumimos
+    que los anuncios remotos globales están en inglés por default)."""
     low = (desc or "").lower()
     words = EN_RE.findall(low)
     if not words:
-        return True
-    es_hits = sum(1 for w in words if w in SPANISH_MARKERS)
-    if es_hits >= 4:
-        return False
-    return True
+        return "english"  # sin palabras reconocibles -> asumimos inglés
+    counts = {
+        "spanish": sum(1 for w in words if w in SPANISH_MARKERS),
+        "german": sum(1 for w in words if w in GERMAN_MARKERS),
+        "french": sum(1 for w in words if w in FRENCH_MARKERS),
+        "italian": sum(1 for w in words if w in ITALIAN_MARKERS),
+        "portuguese": sum(1 for w in words if w in PORTUGUESE_MARKERS),
+    }
+    # Idioma ganador: el de mayor count, pero solo si tiene señales claras
+    lang, score = max(counts.items(), key=lambda x: x[1])
+    if score >= 5:  # al menos 5 marcadores -> señal clara
+        return lang
+    return "english"  # sin señales claras -> asumimos inglés
+
+
+def is_english(desc):
+    """DEPRECATED: usar detect_language() en su lugar.
+    Devuelve True si el anuncio está en inglés (o en un idioma no detectado).
+    Devuelve False solo si es español (que sí soportamos)."""
+    lang = detect_language(desc)
+    return lang != "spanish"
+
+
+# Lista de idiomas NO soportados por el candidato.
+# Si una oferta está en uno de estos idiomas, debe ser IGNOREada.
+UNSUPPORTED_LANGUAGES = {"german", "french", "italian", "portuguese"}
+
+
+def is_unsupported_language(desc):
+    """True si el anuncio está en un idioma que el candidato NO habla
+    (alemán, francés, italiano, portugués)."""
+    return detect_language(desc) in UNSUPPORTED_LANGUAGES
 
 
 def parse_salary(raw):
@@ -398,6 +486,12 @@ def _hard_filters(job, title, text, loc):
         return 0, "IGNORE"
     # 1b) bloquear títulos de trading senior/experienced (candidato es entry-level)
     if SENIOR_TRADER_TITLE.search(title):
+        return 0, "IGNORE"
+    # 1c) bloquear ofertas en idiomas que el candidato NO habla
+    #     (alemán, francés, italiano, portugués). El candidato habla
+    #     inglés y español nativo, cualquier otro idioma es IGNORE.
+    full_desc = job.get("description") or ""
+    if is_unsupported_language(full_desc):
         return 0, "IGNORE"
     # 2) senioridad alta sin junior: máximo REVIEW
     if SENIOR_TITLE.search(title) and not JUNIOR_TITLE.search(title):
