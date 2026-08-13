@@ -119,59 +119,104 @@ SPANISH_MARKERS = {
 }
 
 # Marcadores de idiomas que el candidato NO habla.
-# El bot debe BLOQUEAR ofertas en estos idiomas (no aplicar).
+# IMPORTANTE: solo palabras ALTAMENTE específicas de cada idioma, no palabras
+# comunes que también existen en inglés (knowledge, support, manage, etc.).
+# Umbrales altos para evitar falsos positivos.
 GERMAN_MARKERS = {
-    # palabras alemanas comunes en ofertas
-    "und", "der", "die", "das", "wir", "sie", "mit", "von", "für", "ist",
-    "sind", "auf", "bei", "nicht", "auch", "kunden", "kunde", "aufgaben",
-    "erfahrung", "kenntnisse", "bewerbung", "stelle", "stellenangebot",
-    "mitarbeiter", "unternehmen", "arbeit", "beruf", "tätigkeiten", "anforderungen",
-    "homeoffice", "deutsch", "englisch", "sprachkenntnisse", "muttersprache",
-    "team", "abteilung", "bereich", "kenntnisse", "quereinsteiger",
-    "bewerben", "vollzeit", "teilzeit", "festanstellung", "praktikum",
-    "ausbildung", "studium", "berufserfahrung", "wechsel", "möglichkeit",
-    "gerne", "freuen", "kennenzulernen", "interessiert", "anfragen", "ihre",
-    "ihnen", "unsere", "unser", "einem", "einer", "eines", "werden", "sollten",
-    "können", "müssen", "dürfen", "wollen", "möchten", "gerne", "bitte",
-    "vielen", "dank", "kontakt", "anschrift", "telefon", "bewerbungsschreiben",
-    "lebenslauf", "zeugnisse", "qualifikation", "weiterbildung", "gehalt",
-    "verhandlung", "leistungen", "anstellung", "vertrag", "woche", "monat",
-    "jahr", "stunde", "stunden", "täglich", "wochentags", "pendeln",
+    # artículos y pronombres muy específicos
+    "und", "der", "die", "das", "wir", "sie", "ihnen", "ihre", "ihr",
+    "sich", "auch", "noch", "schon", "sehr", "über", "durch", "gegen",
+    "ohne", "unter", "zwischen", "während", "dagegen",
+    # sustantivos y verbos específicos
+    "kunden", "aufgaben", "tätigkeiten", "anforderungen", "kenntnisse",
+    "erfahrung", "bewerbung", "stelle", "stellenangebot", "mitarbeiter",
+    "unternehmen", "arbeit", "beruf", "bewerben", "vollzeit", "teilzeit",
+    "festanstellung", "praktikum", "ausbildung", "studium", "berufserfahrung",
+    "wechsel", "möglichkeit", "kennenzulernen", "freuen", "anfragen",
+    "kontakt", "anschrift", "bewerbungsschreiben", "lebenslauf", "zeugnisse",
+    "qualifikation", "weiterbildung", "gehalt", "verhandlung", "leistungen",
+    "anstellung", "vertrag", "woche", "monat", "täglich", "wochentags",
+    "kennzulernen", "interessiert", "gerne", "bitte", "vielen", "dank",
+    "möchten", "freuen", "wünschen", "verfügen", "erforderlich",
+    "wünschenswert", "ihrer", "unserer", "unseres", "dieser", "jedoch",
+    "allerdings", "außerdem", "darüber", "deshalb", "trotzdem",
 }
 
 FRENCH_MARKERS = {
-    "et", "le", "la", "les", "des", "un", "une", "avec", "pour", "par",
-    "nous", "vous", "ils", "elles", "est", "sont", "être", "avoir",
-    "expérience", "poste", "entreprise", "candidature", "salaire", "cdi", "cdd",
-    "français", "anglais", "équipe", "département", "télétravail", "embauche",
+    # artículos y pronombres
+    "les", "des", "une", "nous", "vous", "ils", "elles", "leur", "leurs",
+    "être", "avoir", "fait", "faire", "dit", "dire", "aller", "venir", "voir",
+    "savoir", "pouvoir", "vouloir", "falloir", "avec", "pour", "dans",
+    "sur", "sous", "entre", "vers", "chez", "sans", "depuis", "pendant",
+    "avant", "après", "contre", "autour", "parmi",
+    # sustantivos y verbos específicos
+    "poste", "entreprise", "expérience", "candidature", "salaire", "cdi", "cdd",
     "intérim", "stage", "alternance", "compétences", "qualification",
     "responsabilités", "profil", "recherchons", "cherchons", "souhaitons",
     "désirons", "postuler", "embaucher", "rémunération", "avantages",
-    "mutuelle", "transport", "tickets", "restaurant", "cadre", "employé",
+    "mutuelle", "transport", "tickets", "cadre", "employé", "salarié",
+    "chômeurs", "embauche", "recrutement", "embauchons", "français",
+    "métier", "carrière", "entreprise", "client", "fournisseur",
+    "gestion", "direction", "équipe", "département", "service",
+    "développeur", "ingénieur", "commercial", "vendeur", "comptable",
+    "architecte", "consultant", "assistant", "chargé", "responsable",
+    "nouveau", "nouvelle", "actuellement", "également", "cependant",
+    "toutefois", "néanmoins", "puisque", "lorsque", "aujourd'hui",
 }
 
 ITALIAN_MARKERS = {
-    "e", "il", "la", "di", "del", "della", "con", "per", "da", "in", "su",
-    "noi", "voi", "loro", "essere", "avere", "lavoro", "lavorare",
-    "esperienza", "azienda", "stipendio", "retribuzione", "collaborazione",
-    "italiano", "inglese", "squadra", "dipartimento", "smartworking",
-    "remoto", "presenza", "ufficio", "cliente", "clienti", "fornitore",
-    "fornitori", "contratto", "tempo", "indeterminato", "determinato",
-    "stage", "tirocinio", "apprendistato", "competenze", "qualifiche",
-    "responsabilità", "mansioni", "ricerchiamo", "cerchiamo", "desideriamo",
-    "candidatura", "inviare", "colloquio", "conoscenza", "madrelingua",
+    # artículos y pronombres
+    "della", "delle", "questo", "questa", "questi", "queste", "quello",
+    "quella", "quelli", "quelle", "nostro", "nostra", "nostri", "nostre",
+    "vostro", "vostra", "vostri", "vostre", "essere", "avere",
+    "stato", "essendo", "sono", "siamo", "siete", "stanno", "stato",
+    "hanno", "aveva", "avevano", "sarà", "saranno", "stato", "dove",
+    "come", "quando", "perché", "quale", "quali", "molto", "poco",
+    "tanto", "troppo", "ancora", "sempre", "mai", "oggi", "ieri",
+    # sustantivos y verbos específicos
+    "lavoro", "lavorare", "lavoriamo", "azienda", "aziende", "stipendio",
+    "retribuzione", "collaborazione", "italiano", "inglese", "squadra",
+    "dipartimento", "smartworking", "remoto", "presenza", "ufficio",
+    "cliente", "clienti", "fornitore", "fornitori", "contratto",
+    "indeterminato", "determinato", "tempo", "stage", "tirocinio",
+    "apprendistato", "competenze", "qualifiche", "responsabilità",
+    "mansioni", "ricerchiamo", "cerchiamo", "desideriamo", "candidatura",
+    "inviare", "colloquio", "conoscenza", "madrelingua", "annuncio",
+    "posizione", "apertura", "chiusura", "inizio", "fine", "mese",
+    "anno", "giorno", "settimana", "persona", "persone", "ragazzo",
+    "ragazza", "uomo", "donna", "bambino", "famiglia", "amico",
+    "amica", "grande", "piccolo", "nuovo", "vecchio", "bello", "brutto",
+    "buongiorno", "buonasera", "arrivederci", "prego", "grazie", "scusa",
+    "scusi", "andare", "venire", "stare", "uscire", "entrare", "partire",
+    "arrivare", "trovare", "cercare", "guardare", "sentire", "parlare",
 }
 
 PORTUGUESE_MARKERS = {
-    "e", "o", "a", "os", "as", "de", "do", "da", "dos", "das", "com", "por",
-    "para", "em", "no", "na", "nos", "nas", "se", "que", "não", "são",
+    # artículos y pronombres
+    "não", "são", "está", "estão", "também", "ainda", "sempre", "nunca",
+    "pode", "podem", "fazer", "temos", "têm", "ter", "ser", "sido",
+    "sido", "muito", "pouco", "todo", "toda", "todos", "todas", "cada",
+    "qualquer", "algum", "alguma", "alguns", "algumas", "nenhum",
+    "nenhuma", "outro", "outra", "outros", "outras", "mesmo", "mesma",
+    "mesmos", "mesmas", "tanto", "tanta", "tantos", "tantas",
+    "este", "esta", "estes", "estas", "isto", "isso", "aquilo",
+    "aquele", "aquela", "aqueles", "aquelas", "meu", "minha", "meus",
+    "minhas", "teu", "tua", "teus", "tuas", "seu", "sua", "seus", "suas",
+    "nosso", "nossa", "nossos", "nossas", "vosso", "vossa", "vossos",
+    "vossas", "quem", "que", "qual", "quais", "onde", "quando",
+    "como", "porque", "embora", "entretanto", "contudo", "porém",
+    # sustantivos y verbos específicos
     "trabalho", "trabalhar", "empresa", "experiência", "salário", "cargo",
     "vaga", "candidatura", "equipe", "departamento", "remoto", "presencial",
     "escritório", "cliente", "clientes", "fornecedor", "contrato",
     "indeterminado", "determinado", "estágio", "trainee", "jovem",
-    "aprendiz", "competências", "habilidades", "requisitos", "responsabilidades",
-    "procuramos", "buscamos", "desejável", "desejamos", "enviar", "conhecimento",
-    "português", "inglês", "espanhol", "língua", "fluente", "nativo",
+    "aprendiz", "competências", "habilidades", "requisitos",
+    "responsabilidades", "procuramos", "buscamos", "desejável", "desejamos",
+    "conhecimento", "português", "inglês", "espanhol", "língua",
+    "fluente", "nativo", "contratação", "seleção", "recrutamento",
+    "candidato", "candidatos", "entrevista", "currículo", "empresa",
+    "sociedade", "fundação", "instituto", "associação", "federação",
+    "trabalhador", "empregado", "funcionário", "colaborador", "estagiário",
 }
 
 
@@ -179,14 +224,19 @@ def detect_language(desc):
     """Detecta el idioma del anuncio. Devuelve uno de:
     'spanish', 'english', 'german', 'french', 'italian', 'portuguese', 'unknown'.
 
-    Estrategia: contar marcadores de cada idioma. Si hay señales claras de
-    un idioma no soportado, devolverlo (para que el caller pueda bloquear).
-    Si no hay señales claras de NINGÚN idioma, devolver 'english' (asumimos
-    que los anuncios remotos globales están en inglés por default)."""
+    Estrategia: contar marcadores ESPECÍFICOS de cada idioma. Si hay señales
+    claras de un idioma no soportado, devolverlo. Si no, devolver 'english'
+    (los anuncios remotos globales son en inglés por default).
+
+    Para reducir falsos positivos, también miramos:
+    1. El umbral es relativo al total de palabras (>=3% de las palabras)
+    2. El idioma detectado debe ser MAYOR que el segundo más alto
+    """
     low = (desc or "").lower()
     words = EN_RE.findall(low)
     if not words:
         return "english"  # sin palabras reconocibles -> asumimos inglés
+    total_words = len(words)
     counts = {
         "spanish": sum(1 for w in words if w in SPANISH_MARKERS),
         "german": sum(1 for w in words if w in GERMAN_MARKERS),
@@ -194,9 +244,18 @@ def detect_language(desc):
         "italian": sum(1 for w in words if w in ITALIAN_MARKERS),
         "portuguese": sum(1 for w in words if w in PORTUGUESE_MARKERS),
     }
-    # Idioma ganador: el de mayor count, pero solo si tiene señales claras
-    lang, score = max(counts.items(), key=lambda x: x[1])
-    if score >= 5:  # al menos 5 marcadores -> señal clara
+    # Idioma ganador: el de mayor count
+    sorted_langs = sorted(counts.items(), key=lambda x: -x[1])
+    lang, score = sorted_langs[0]
+    second_score = sorted_langs[1][1]
+    # Condiciones para considerar "señal clara":
+    # 1. Al menos 8 matches absolutos
+    # 2. >= 3% de las palabras son del idioma
+    # 3. El score es 2x mayor que el segundo idioma más alto
+    if (score >= 8
+        and score / total_words >= 0.03
+        and score >= second_score * 2
+        and lang in UNSUPPORTED_LANGUAGES):
         return lang
     return "english"  # sin señales claras -> asumimos inglés
 
@@ -216,7 +275,8 @@ UNSUPPORTED_LANGUAGES = {"german", "french", "italian", "portuguese"}
 
 def is_unsupported_language(desc):
     """True si el anuncio está en un idioma que el candidato NO habla
-    (alemán, francés, italiano, portugués)."""
+    (alemán, francés, italiano, portugués). Requiere señales MUY claras
+    (>12 marcadores) para evitar falsos positivos."""
     return detect_language(desc) in UNSUPPORTED_LANGUAGES
 
 
@@ -419,6 +479,17 @@ MANAGER_TECH = re.compile(
     r"\bmanager\b.{0,20}\b(technical|support|operations|team|office|program|"
     r"project|engineering|department)\b", re.I)
 
+# Regla dura: títulos que requieren un idioma que el candidato NO habla.
+# Si el TÍTULO dice "German Speaking", "French Speaking", etc., la oferta
+# requiere ese idioma aunque la descripción esté en inglés. La bloqueamos
+# porque el candidato no maneja esos idiomas.
+NON_ENGLISH_TITLE_RE = re.compile(
+    r"\b(german|french|italian|portuguese|spanish|italian|polish|"
+    r"dutch|swedish|norwegian|finnish|danish|russian|chinese|japanese|"
+    r"korean|arabic|hindi|hebrew|turkish|polish)\s*-?\s*"
+    r"(speaking|fluent|native|proficient|only|required)\b",
+    re.I)
+
 # Regla dura: títulos de trading con seniority alta o que piden experiencia
 # avanzada -> IGNORE directo. El candidato es entry/junior, no senior trader.
 # Cubre: Senior/Lead/Head/Principal/Chief Trader, "Experienced Trader",
@@ -492,6 +563,11 @@ def _hard_filters(job, title, text, loc):
     #     inglés y español nativo, cualquier otro idioma es IGNORE.
     full_desc = job.get("description") or ""
     if is_unsupported_language(full_desc):
+        return 0, "IGNORE"
+    # 1d) bloquear títulos que requieren un idioma no soportado
+    #     (ej: "German Speaking Customer Service" — el candidato
+    #     no habla alemán aunque la descripción esté en inglés)
+    if NON_ENGLISH_TITLE_RE.search(title):
         return 0, "IGNORE"
     # 2) senioridad alta sin junior: máximo REVIEW
     if SENIOR_TITLE.search(title) and not JUNIOR_TITLE.search(title):
