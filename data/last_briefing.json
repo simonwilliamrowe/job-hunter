@@ -1,16 +1,5 @@
 [
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-it-support-specialist",
-  "title": "IT Support Specialist",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/it-support-specialist",
-  "description": "",
-  "location": "",
-  "salary": "30 - 55 USD hourly",
-  "tags": [],
-  "source": ""
- },
- {
   "id": "wwr-customersupportproductdemospecialistjoby",
   "title": "Customer Support & Product Demo Specialist",
   "company": "Joby",
@@ -66,17 +55,6 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-content-editor-9342871296",
-  "title": "Content Editor",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/content-editor-9342871296",
-  "description": "",
-  "location": "",
-  "salary": "annual",
-  "tags": [],
-  "source": ""
- },
- {
   "id": "wwr-contractitspecialistcustomerio",
   "title": "Contract IT Specialist",
   "company": "Customer.io",
@@ -110,13 +88,13 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-business-document-expert-excel-powerpoint-word-5106304340",
-  "title": "Business Document Expert (Excel, PowerPoint, Word)",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/business-document-expert-excel-powerpoint-word-5106304340",
+  "id": "him-https-himalayas-app-companies-smartland-jobs-virtual-assistant-for-various-tasks",
+  "title": "Virtual Assistant for various tasks",
+  "company": "Smartland",
+  "url": "https://himalayas.app/companies/smartland/jobs/virtual-assistant-for-various-tasks",
   "description": "",
   "location": "",
-  "salary": "35 - 50 USD hourly",
+  "salary": "weekly",
   "tags": [],
   "source": ""
  },
@@ -198,6 +176,17 @@
   "source": ""
  },
  {
+  "id": "him-https-himalayas-app-companies-vizx-global-jobs-executive-assistant",
+  "title": "Executive Assistant",
+  "company": "VizX Global",
+  "url": "https://himalayas.app/companies/vizx-global/jobs/executive-assistant",
+  "description": "",
+  "location": "",
+  "salary": "hourly",
+  "tags": [],
+  "source": ""
+ },
+ {
   "id": "wwr-associateobservabilityarchitectestremotegrafanalabs",
   "title": "Associate Observability Architect | EST | Remote",
   "company": "Grafana Labs",
@@ -213,6 +202,17 @@
   "title": "Syntropy Sculptor - B2B SaaS Brand Design",
   "company": "Kalungi Inc.",
   "url": "https://weworkremotely.com/remote-jobs/kalungi-inc-syntropy-sculptor-b2b-saas-brand-design",
+  "description": "",
+  "location": "",
+  "salary": "",
+  "tags": [],
+  "source": ""
+ },
+ {
+  "id": "wwr-forwarddeployedengineercomplianceofficeofthectocoinbase",
+  "title": "Forward Deployed Engineer, Compliance [Office of the CTO]",
+  "company": "Coinbase",
+  "url": "https://weworkremotely.com/remote-jobs/coinbase-forward-deployed-engineer-compliance-office-of-the-cto",
   "description": "",
   "location": "",
   "salary": "",
