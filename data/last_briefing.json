@@ -1,23 +1,12 @@
 [
  {
-  "id": "wwr-customersupportproductdemospecialistjoby",
-  "title": "Customer Support & Product Demo Specialist",
-  "company": "Joby",
-  "url": "https://weworkremotely.com/remote-jobs/joby-customer-support-product-demo-specialist",
+  "id": "him-https-himalayas-app-companies-micro1-jobs-it-support-specialist",
+  "title": "IT Support Specialist",
+  "company": "micro1",
+  "url": "https://himalayas.app/companies/micro1/jobs/it-support-specialist",
   "description": "",
   "location": "",
-  "salary": "",
-  "tags": [],
-  "source": ""
- },
- {
-  "id": "wwr-blockchainriskcontrolresearchinternbybit",
-  "title": "Blockchain Risk Control Research Intern",
-  "company": "Bybit",
-  "url": "https://weworkremotely.com/remote-jobs/bybit-blockchain-risk-control-research-intern",
-  "description": "",
-  "location": "",
-  "salary": "",
+  "salary": "30 - 55 USD hourly",
   "tags": [],
   "source": ""
  },
@@ -55,6 +44,17 @@
   "source": ""
  },
  {
+  "id": "him-https-himalayas-app-companies-micro1-jobs-content-editor-9342871296",
+  "title": "Content Editor",
+  "company": "micro1",
+  "url": "https://himalayas.app/companies/micro1/jobs/content-editor-9342871296",
+  "description": "",
+  "location": "",
+  "salary": "annual",
+  "tags": [],
+  "source": ""
+ },
+ {
   "id": "wwr-contractitspecialistcustomerio",
   "title": "Contract IT Specialist",
   "company": "Customer.io",
@@ -88,13 +88,13 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-smartland-jobs-virtual-assistant-for-various-tasks",
-  "title": "Virtual Assistant for various tasks",
-  "company": "Smartland",
-  "url": "https://himalayas.app/companies/smartland/jobs/virtual-assistant-for-various-tasks",
+  "id": "him-https-himalayas-app-companies-micro1-jobs-business-document-expert-excel-powerpoint-word-5106304340",
+  "title": "Business Document Expert (Excel, PowerPoint, Word)",
+  "company": "micro1",
+  "url": "https://himalayas.app/companies/micro1/jobs/business-document-expert-excel-powerpoint-word-5106304340",
   "description": "",
   "location": "",
-  "salary": "weekly",
+  "salary": "35 - 50 USD hourly",
   "tags": [],
   "source": ""
  },
@@ -176,17 +176,6 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-vizx-global-jobs-executive-assistant",
-  "title": "Executive Assistant",
-  "company": "VizX Global",
-  "url": "https://himalayas.app/companies/vizx-global/jobs/executive-assistant",
-  "description": "",
-  "location": "",
-  "salary": "hourly",
-  "tags": [],
-  "source": ""
- },
- {
   "id": "wwr-associateobservabilityarchitectestremotegrafanalabs",
   "title": "Associate Observability Architect | EST | Remote",
   "company": "Grafana Labs",
@@ -205,6 +194,17 @@
   "description": "",
   "location": "",
   "salary": "",
+  "tags": [],
+  "source": ""
+ },
+ {
+  "id": "him-https-himalayas-app-companies-micro1-jobs-enterprise-ai-workflow-expert",
+  "title": "Enterprise AI Workflow Expert",
+  "company": "micro1",
+  "url": "https://himalayas.app/companies/micro1/jobs/enterprise-ai-workflow-expert",
+  "description": "",
+  "location": "",
+  "salary": "hourly",
   "tags": [],
   "source": ""
  },
