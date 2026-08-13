@@ -1,17 +1,13 @@
 """
-Job Hunter - BOT DIARIO v2 (app viva en GitHub Actions).
+Job Hunter - BOT DIARIO v3 (app viva en GitHub Actions).
 
-Cada mañana: descarga ofertas de 7 bolsas → scoring multi-carril →
-briefing (grupos 🔥🟢🟡 + top 3 con desglose y CV recomendado) →
-paquetes del top 3 en un zip → Telegram.
-
-NUNCA se postula solo: la IA encuentra y prepara, vos aprobás y aplicás.
-
-Cambios v2.1:
-- Logs verbosos de Telegram para diagnosticar problemas con applied/dismissed.
-- Mantiene la lógica original: las ofertas crypto/top vuelven a salir
-  cada día si siguen activas (no hay anti-spam de "ya visto"). Solo
-  applied.json y dismissed.json filtran duro.
+Cambios v3:
+- BUGFIX: lee Telegram UNA sola vez y aplica AMBOS parsers (aplicada + descarta)
+  sobre cada mensaje. Antes, _process_telegram_applications corría primero,
+  leía todos los mensajes, AVANZABA el offset y se saltaba los mensajes de
+  descarte que venían después.
+- Mantiene el resto del comportamiento v2.1 (logs verbosos, ranking top
+  ofertas siempre, etc.)
 """
 import json
 import os
@@ -20,7 +16,7 @@ import sys
 import zipfile
 from datetime import date
 
-os.makedirs("data", exist_ok=True)  # la carpeta data/ siempre existe
+os.makedirs("data", exist_ok=True)
 
 import requests
 
@@ -48,8 +44,6 @@ def load_seen():
 
 
 def save_briefing(jobs_list):
-    """Guarda el orden del briefing con COPIA COMPLETA de cada oferta
-    (descripción incluida) para poder archivar la exacta al marcar 'aplicada'."""
     data = [{"id": j["id"], "title": j["title"], "company": j["company"],
              "url": j["url"], "description": (j.get("description") or "")[:12000],
              "location": j.get("location") or "", "salary": j.get("salary") or "",
@@ -68,19 +62,20 @@ def load_briefing():
         return []
 
 
-# Parser para "descartar 2,4" / "no 3" / "fuera 1 y 5" / "descarta 2,4,5,7"
-# Acepta: "descartar", "descarta", "descarté", "no", "fuera", "quita", "quit",
-# "saca", "elimina" + números separados por coma, espacio o "y"
+# Patrones regex
 DISMISS_RE = re.compile(
     r"(?:descart\w*|no|fuera|quita|quit\w*|saca|elimin\w*)\s*"
     r"(?:a|la|las|el)?\s*:?\s*"
     r"([0-9](?:[0-9,\s+y]*[0-9])?)\s*$",
     re.I)
+APPLY_RE = re.compile(
+    r"(?:aplicad[oa]?|apliqu[ée])\s*"
+    r"(?:a|a la|a las)?\s*:?\s*"
+    r"([0-9](?:[0-9,\s+y]*[0-9])?)\s*$", re.I)
 
 
 def _parse_dismiss_message(text, brief):
-    """Interpreta 'descartar 2,4' o 'no 3' o 'fuera 1 y 5'.
-    Devuelve lista de ids de ofertas a descartar."""
+    """'descartar 2,4' / 'no 3' / 'fuera 1 y 5' → lista de ids."""
     if not text or not brief:
         return []
     m = DISMISS_RE.search(text.strip())
@@ -94,80 +89,19 @@ def _parse_dismiss_message(text, brief):
     return marked
 
 
-def _process_telegram_dismissals():
-    """Lee mensajes de descarte y los guarda. Devuelve nº de descartados."""
-    if not TOKEN or not CHAT_ID:
-        print("[telegram] Sin TOKEN o CHAT_ID — no se procesan descartes")
-        return 0
-    brief = load_briefing()
-    if not brief:
-        print("[telegram] Sin briefing previo — no se procesan descartes")
-        return 0
-    offset = 0
-    try:
-        offset = int(open(OFFSET_PATH).read().strip())
-    except Exception as e:
-        print(f"[telegram] No hay offset previo: {e}")
-    try:
-        r = requests.get(
-            f"https://api.telegram.org/bot{TOKEN}/getUpdates",
-            params={"offset": offset, "timeout": 2}, timeout=40,
-        )
-        data = r.json()
-        updates = data.get("result", [])
-        if not updates and "description" in data:
-            print(f"[telegram] Respuesta inesperada: {str(data)[:200]}")
-    except Exception as e:
-        print(f"[telegram] getUpdates error: {e}")
-        return 0
-    marked = 0
-    last_id = offset
-    print(f"[telegram] Leyendo updates desde offset {offset}...")
-    for u in updates:
-        last_id = max(last_id, u.get("update_id", 0))
-        msg = u.get("message") or u.get("edited_message") or {}
-        chat_id = str(msg.get("chat", {}).get("id", ""))
-        if chat_id != str(CHAT_ID):
-            continue
-        text = msg.get("text") or ""
-        print(f"[telegram]   mensaje: {text!r}")
-        ids_to_dismiss = _parse_dismiss_message(text, brief)
-        if not ids_to_dismiss:
-            print(f"[telegram]     no matchea ningún patrón de descarte")
-            continue
-        print(f"[telegram]     matchea: {ids_to_dismiss}")
-        for oid in ids_to_dismiss:
-            item = next((b for b in brief if b["id"] == oid), None)
-            if item:
-                dismissed.add(oid, company=item.get("company", ""), title=item.get("title", ""))
-                marked += 1
-                print(f"[telegram]     ✓ descartada: {item.get('title','')[:50]}")
-    if last_id:
-        with open(OFFSET_PATH, "w") as f:
-            f.write(str(last_id + 1))
-    if marked:
-        print(f"✅ Descartadas desde Telegram: {marked}")
-    else:
-        print(f"[telegram] Ningún mensaje procesado como descarte")
-    return marked
-
-
 def _parse_apply_message(text, brief):
-    """Interpreta 'aplicada 1,3,5' o 'aplique a 1 y 3' o un link de oferta.
-    Devuelve lista de ids de ofertas a marcar como aplicadas."""
+    """'aplicada 1,3,5' / 'aplique a 1 y 3' / link → lista de ids."""
     if not text or not brief:
         return []
     t = text.lower().strip()
     marked = []
-    # patrón: aplicada/apliqué/aplicado/aplicó [a] 1,3,5
-    m = re.search(r"(?:aplicad[oa]?|apliqu[ée])\s*(?:a|a la|a las)?\s*:?\s*([0-9](?:[0-9,\s+y]*[0-9])?)\s*$", t)
+    m = APPLY_RE.search(t)
     if m:
         for tok in re.findall(r"\d+", m.group(1)):
             idx = int(tok)
             if 1 <= idx <= len(brief):
                 marked.append(brief[idx - 1]["id"])
     else:
-        # link directo de una oferta del briefing
         for item in brief:
             url = (item.get("url") or "").lower().rstrip("/")
             if url and url in t:
@@ -175,16 +109,19 @@ def _parse_apply_message(text, brief):
     return marked
 
 
-def _process_telegram_applications():
-    """Lee los mensajes que el usuario le mandó al bot y marca aplicadas.
-    Devuelve el número de ofertas marcadas."""
+def _process_telegram_messages():
+    """Lee mensajes de Telegram UNA sola vez, aplica ambos parsers
+    (aplicada + descarta) sobre cada uno, y actualiza el offset UNA sola vez.
+    Esto evita el bug donde _process_telegram_applications leía todos
+    los mensajes y avanzaba el offset, dejando _process_telegram_dismissals
+    sin nada que leer."""
     if not TOKEN or not CHAT_ID:
-        print("[telegram] Sin TOKEN o CHAT_ID — no se procesan aplicadas")
-        return 0
+        print("[telegram] Sin TOKEN o CHAT_ID — no se procesan mensajes")
+        return 0, 0
     brief = load_briefing()
     if not brief:
-        print("[telegram] Sin briefing previo — no se procesan aplicadas")
-        return 0
+        print("[telegram] Sin briefing previo — no se procesan mensajes")
+        return 0, 0
     offset = 0
     try:
         offset = int(open(OFFSET_PATH).read().strip())
@@ -201,39 +138,68 @@ def _process_telegram_applications():
             print(f"[telegram] Respuesta inesperada: {str(data)[:200]}")
     except Exception as e:
         print(f"[telegram] getUpdates error: {e}")
-        return 0
-    marked = 0
+        return 0, 0
+
+    applied_marked = 0
+    dismissed_marked = 0
     last_id = offset
-    print(f"[telegram] Leyendo updates desde offset {offset}...")
+    print(f"[telegram] Leyendo {len(updates)} updates desde offset {offset}...")
     for u in updates:
         last_id = max(last_id, u.get("update_id", 0))
         msg = u.get("message") or u.get("edited_message") or {}
-        chat_id = str(msg.get("chat", {}).get("id", ""))
-        if chat_id != str(CHAT_ID):
+        chat_id_msg = str(msg.get("chat", {}).get("id", ""))
+        if chat_id_msg != str(CHAT_ID):
+            print(f"[telegram]   update {u.get('update_id', 0)}: chat_id={chat_id_msg} (no matchea, SKIP)")
             continue
         text = msg.get("text") or ""
         print(f"[telegram]   mensaje: {text!r}")
-        ids_to_mark = _parse_apply_message(text, brief)
-        if not ids_to_mark:
-            print(f"[telegram]     no matchea ningún patrón de aplicada")
+
+        # Aplicar AMBOS parsers sobre el mismo mensaje
+        # 1) Intentar como descarte
+        ids_dismiss = _parse_dismiss_message(text, brief)
+        if ids_dismiss:
+            print(f"[telegram]     → DESCARTAR: {ids_dismiss}")
+            for oid in ids_dismiss:
+                item = next((b for b in brief if b["id"] == oid), None)
+                if item:
+                    dismissed.add(oid, company=item.get("company", ""),
+                                  title=item.get("title", ""))
+                    dismissed_marked += 1
+                    print(f"[telegram]       ✓ descartada: {item.get('title','')[:50]}")
+            continue  # si fue descarte, no procesar como aplicada
+
+        # 2) Si no fue descarte, intentar como aplicada
+        ids_apply = _parse_apply_message(text, brief)
+        if ids_apply:
+            print(f"[telegram]     → APLICAR: {ids_apply}")
+            for oid in ids_apply:
+                item = next((b for b in brief if b["id"] == oid), None)
+                if item:
+                    snapshot = {k: item.get(k) for k in
+                                ("id", "title", "company", "url", "description",
+                                 "location", "salary", "tags", "source")}
+                    applied.add(oid, company=item.get("company", ""),
+                                title=item.get("title", ""), snapshot=snapshot)
+                    applied_marked += 1
+                    print(f"[telegram]       ✓ aplicada: {item.get('title','')[:50]}")
             continue
-        print(f"[telegram]     matchea: {ids_to_mark}")
-        for oid in ids_to_mark:
-            item = next((b for b in brief if b["id"] == oid), None)
-            if item:
-                snapshot = {k: item.get(k) for k in
-                            ("id", "title", "company", "url", "description",
-                             "location", "salary", "tags", "source")}
-                applied.add(oid, company=item.get("company", ""),
-                            title=item.get("title", ""), snapshot=snapshot)
-                marked += 1
-                print(f"[telegram]     ✓ aplicada: {item.get('title','')[:50]}")
+
+        # 3) Si no matcheó ninguno, log
+        print(f"[telegram]     no matchea patrón de aplicada ni descarta")
+
+    # ACTUALIZAR OFFSET UNA SOLA VEZ
     if last_id:
         with open(OFFSET_PATH, "w") as f:
             f.write(str(last_id + 1))
-    if marked:
-        print(f"✅ Marcadas como aplicadas desde Telegram: {marked}")
-    return marked
+
+    if applied_marked:
+        print(f"✅ Marcadas como aplicadas: {applied_marked}")
+    if dismissed_marked:
+        print(f"✅ Marcadas como descartadas: {dismissed_marked}")
+    if not applied_marked and not dismissed_marked:
+        print(f"[telegram] Ningún mensaje procesado")
+
+    return applied_marked, dismissed_marked
 
 
 def save_seen(ids):
@@ -242,8 +208,6 @@ def save_seen(ids):
 
 
 def build_briefing(scored, total):
-    """Genera el briefing. Ya no usa 'seen' para filtrar (las mejores ofertas
-    vuelven a salir cada día si siguen activas en el mercado)."""
     today = date.today().strftime("%d/%m/%Y")
     apply_now = [x for x in scored if x["band"] == "APPLY NOW"]
     apply = [x for x in scored if x["band"] == "APPLY"]
@@ -303,7 +267,6 @@ def _est_minutes(persona_id):
 
 
 def _notify_error(err_text):
-    """Si hay secrets, manda el error a Telegram para que el usuario lo vea."""
     if TOKEN and CHAT_ID:
         try:
             requests.post(
@@ -311,14 +274,14 @@ def _notify_error(err_text):
                 data={"chat_id": CHAT_ID, "text": f"⚠️ Job Hunter falló hoy:\n{err_text[:3500]}"},
                 timeout=60,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
 def main():
     try:
         return _main()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         import traceback
         err = traceback.format_exc()
         print(err)
@@ -327,17 +290,13 @@ def main():
 
 
 def _main():
-    print("🦅 Job Hunter — bot diario v2.1 (logs verbosos)")
-    # Estado previo
+    print("🦅 Job Hunter — bot diario v3 (fix aplicado+descarta unificado)")
     print(f"  Estado previo: applied={len(applied.ids())} | dismissed={len(dismissed.ids())}")
 
-    # 1) Procesar mensajes de Telegram ANTES de descargar ofertas
-    marked = _process_telegram_applications()
-    if marked:
-        print(f"  (se excluirán {marked} ofertas ya aplicadas)")
-    dismissed_n = _process_telegram_dismissals()
-    if dismissed_n:
-        print(f"  (se excluirán {dismissed_n} ofertas descartadas)")
+    # 1) Procesar TODOS los mensajes de Telegram en una sola pasada
+    applied_marked, dismissed_marked = _process_telegram_messages()
+    if applied_marked or dismissed_marked:
+        print(f"  Procesados: {applied_marked} aplicadas + {dismissed_marked} descartadas")
 
     # 2) Cargar perfil y descargar ofertas
     profile = load_profile()
@@ -371,14 +330,14 @@ def _main():
     save_briefing(scored[:20])
     briefing = build_briefing(scored, len(jobs))
 
-    # 5) Actualizar seen.json (solo para tracking, no se usa para filtrar)
+    # 5) Actualizar seen.json (solo tracking, no filtra)
     seen = load_seen()
     seen.update(x["id"] for x in scored[:12])
     save_seen(seen)
 
     print("\n" + briefing + "\n")
 
-    # 6) Generar ZIP con los 3 paquetes top
+    # 6) Generar ZIP
     zip_path = None
     if scored:
         zip_path = "digest.zip"
@@ -406,7 +365,7 @@ def _main():
                                         "caption": "📦 Paquetes CV del top 3 (ATS .docx + .txt + carta + respuestas). ¡Aplicá vos!"},
                                   files={"document": ("digest.zip", f, "application/zip")}, timeout=120).raise_for_status()
             sent = True
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[telegram] error: {e}")
     if sent:
         print("✅ Resumen enviado a Telegram")
