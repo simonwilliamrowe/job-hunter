@@ -327,9 +327,16 @@ def _main():
     order = {"APPLY NOW": 0, "APPLY": 1, "REVIEW": 2}
     scored.sort(key=lambda x: (order.get(x["band"], 9), -x["score"]))
 
-    # 5) Save briefing (para archive al marcar aplicadas)
-    save_briefing([{**j, **s} for j, s in zip(jobs[:30],
-               [next((x for x in scored if x["id"] == j["id"]), {}) for j in jobs[:30]])])
+    # 5) Save briefing SOLO con las scored (ya filtradas: no aplicadas, no descartadas)
+    #    Esto es lo que el parser de Telegram matchea con "aplicada 1,3" / "descartar 2"
+    brief_for_telegram = []
+    for x in scored[:30]:
+        job = next((j for j in jobs if j["id"] == x["id"]), None)
+        if job:
+            brief_for_telegram.append({**job, **x})
+        else:
+            brief_for_telegram.append(x)
+    save_briefing(brief_for_telegram)
 
     # 6) Build briefing
     seen = load_seen()
