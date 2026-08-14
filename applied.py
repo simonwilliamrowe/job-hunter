@@ -1,59 +1,52 @@
-"""
-Job Hunter - Lista de ofertas APLICADAS.
-El sistema las excluye siempre: la app web no las muestra y el briefing
-diario de Telegram no las vuelve a mandar.
+"""applied.py - Tracking de ofertas aplicadas.
+
+Persiste en data/applied.json: lista de ofertas que el usuario marcó como aplicadas.
 """
 import json
 import os
-import threading
-import time
 
 APPLIED_PATH = "data/applied.json"
 
-_lock = threading.Lock()
 
-
-def load():
+def _load():
+    if not os.path.exists(APPLIED_PATH):
+        return []
     try:
         with open(APPLIED_PATH, "r", encoding="utf-8") as f:
-            items = json.load(f)
-            return items if isinstance(items, list) else []
+            d = json.load(f)
+            return d if isinstance(d, list) else []
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
 
-def save(items):
-    with _lock:
-        with open(APPLIED_PATH, "w", encoding="utf-8") as f:
-            json.dump(items, f, ensure_ascii=False, indent=1)
+def _save(items):
+    with open(APPLIED_PATH, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=1)
 
 
-def ids():
-    return {x.get("id") for x in load()}
-
-
-def add(offer_id, company="", title="", source="", snapshot=None):
-    """Registra una oferta como aplicada, GUARDANDO UNA COPIA COMPLETA
-    (snapshot con descripción, link, salario...) para poder recuperarla
-    exactamente aunque respondan meses después."""
-    items = load()
-    if any(x.get("id") == offer_id for x in items):
-        return items
-    entry = {
+def add(offer_id, company="", title="", snapshot=None):
+    """Marca una oferta como aplicada. Idempotente."""
+    items = _load()
+    if any(i.get("id") == offer_id for i in items):
+        return False
+    from datetime import datetime
+    item = {
         "id": offer_id,
         "company": company,
         "title": title,
-        "source": source,
-        "date": time.strftime("%Y-%m-%d"),
+        "applied_at": datetime.now().isoformat(timespec="seconds"),
     }
     if snapshot:
-        entry["snapshot"] = snapshot  # copia completa de la oferta
-    items.insert(0, entry)
-    save(items)
-    return items
+        item.update(snapshot)
+    items.append(item)
+    _save(items)
+    return True
 
 
-def remove(offer_id):
-    items = [x for x in load() if x.get("id") != offer_id]
-    save(items)
-    return items
+def ids():
+    """Devuelve el set de IDs aplicadas."""
+    return {i.get("id", "") for i in _load() if i.get("id")}
+
+
+def all_items():
+    return _load()

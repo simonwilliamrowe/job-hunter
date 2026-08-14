@@ -1,29 +1,44 @@
-"""
-Job Hunter - Módulo de descarga de ofertas desde APIs públicas de bolsas de
-trabajo remoto. Sin scraping de LinkedIn: fuentes 100% legales y estables.
+"""Job Hunter - Fetchers.
 
-Fuentes: RemoteOK, Remotive, Jobicy, We Work Remotely, Arbeitnow, Python.org.
+Pipeline de descarga de ofertas. Modular, con rate limiting por host,
+deduplicación y normalización.
+
+Fuentes:
+  - 7 job boards públicos (RemoteOK, Remotive, Jobicy, WWR, Arbeitnow, CryptoJobs, Web3Career)
+  - 30+ empresas vía ATS (Greenhouse, Lever, Ashby, Workable)
+  - LinkedIn Guest API opcional (~120 queries LATAM, off por default)
 """
+
 import html
+import json
 import re
+import time
 import xml.etree.ElementTree as ET
+from collections import defaultdict
+from urllib.parse import urlparse
 
 import requests
-from ats_boards import fetch_ats_boards
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
 }
 TIMEOUT = 25
 
+RATE_LIMITS = {
+    "www.linkedin.com": 1.0,
+    "boards-api.greenhouse.io": 2.0,
+    "api.lever.co": 2.0,
+    "jobs.ashbyhq.com": 1.0,
+    "api.smartrecruiters.com": 2.0,
+    "api.recruitee.com": 2.0,
+    "apply.workable.com": 2.0,
+    "default": 1.0,
+}
 
-# ---------------------------------------------------------------------------
-# utilidades
-# ---------------------------------------------------------------------------
 
 def _clean_html(raw):
-    """Convierte HTML sucio a texto plano legible."""
     if not raw:
         return ""
     raw = re.sub(r"<br\s*/?>", " ", raw, flags=re.I)
@@ -35,399 +50,737 @@ def _clean_html(raw):
 
 
 def _norm(s):
-    """Huella para deduplicar ofertas entre fuentes."""
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
 
-def _salary_str(min_v, max_v):
-    try:
-        lo = int(float(min_v or 0))
-        hi = int(float(max_v or 0))
-        if lo and hi:
-            return f"${lo//1000}k - ${hi//1000}k"
-        if lo:
-            return f"${lo//1000}k"
-        if hi:
-            return f"${hi//1000}k"
-    except (TypeError, ValueError):
-        pass
-    return ""
+def _host_rate(url):
+    host = urlparse(url).netloc
+    return RATE_LIMITS.get(host, RATE_LIMITS["default"])
 
 
-def _money_from_text(s):
-    if not s or not str(s).strip():
-        return ""
-    s = str(s).strip()
-    if s.lower() in ("unknown", "n/a", "tbd", "not disclosed"):
-        return ""
-    return s
+_LAST_FETCH = defaultdict(float)
 
 
-def _parse_rss_items(content):
-    root = ET.fromstring(content)
-    return [it for it in root.iter("item")]
+def _throttle(url):
+    rate = _host_rate(url)
+    elapsed = time.time() - _LAST_FETCH[urlparse(url).netloc]
+    if elapsed < 1 / rate:
+        time.sleep((1 / rate) - elapsed)
+    _LAST_FETCH[urlparse(url).netloc] = time.time()
 
 
-# ---------------------------------------------------------------------------
-# RemoteOK (con filtro anti-spam: hoy mezclan listados basura)
-# ---------------------------------------------------------------------------
-
-ROLE_WORDS = (
-    "developer", "engineer", "engineering", "software", "dev", "designer", "design",
-    "product", "manager", "data", "analyst", "scientist", "support", "marketing",
-    "sales", "growth", "content", "writer", "devops", "sysadmin", "admin",
-    "recruiter", "finance", "ux", "ui", "qa", "tester", "architect", "lead",
-    "head", "director", "intern", "junior", "senior", "full stack", "fullstack",
-    "frontend", "front-end", "backend", "back-end", "mobile", "ios", "android",
-    "security", "sre", "platform", "cloud", "ai", "ml", "machine learning",
-    "wordpress", "shopify", "drupal", "rails", "python", "javascript", "typescript",
-    "react", "vue", "angular", "node", "php", "java", "golang", "go ", "rust",
-    "ruby", "kotlin", "swift", "c#", "c++", "scala", "elixir", "django", "flask",
-    "fastapi", "laravel", "spring", "aws", "azure", "gcp", "kubernetes", "docker",
-    "sql", "nosql", "postgres", "mysql", "mongo", "teacher", "instructor", "copywriter",
-)
-
-JUNK_TITLES = {"jobs", "job", "careers", "apply", "help", "staff", "driver",
-               "how apply", "how to apply", "now hiring", "hiring"}
+def _get(url, **kwargs):
+    _throttle(url)
+    for attempt in range(2):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, **kwargs)
+            if r.status_code == 429:
+                time.sleep(120)
+                continue
+            return r
+        except requests.RequestException:
+            time.sleep(5)
+    return None
 
 
-def _is_plausible_rok(j):
-    """
-    Filtro estricto anti-spam: RemoteOK sufre ataques de listados basura.
-    Las ofertas legítimas publican salario; las de spam casi nunca.
-    (Si RemoteOK limpia su API, se puede relajar este filtro.)
-    """
-    title = (j.get("position") or "").strip()
-    if not title or title.lower() in JUNK_TITLES or len(title) < 3:
-        return False
-    try:
-        sal = int(float(j.get("salary_min") or 0)) + int(float(j.get("salary_max") or 0))
-    except (TypeError, ValueError):
-        sal = 0
-    return sal > 0
-
+# ============================================================================
+# Fetchers: job boards
+# ============================================================================
 
 def fetch_remoteok():
-    out = []
+    r = _get("https://remoteok.com/api")
+    if not r or r.status_code != 200:
+        return []
     try:
-        r = requests.get("https://remoteok.com/api", headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
         data = r.json()
-        if isinstance(data, list):
-            data = data[1:]  # el primer elemento es metadata
-        for j in data:
-            if not _is_plausible_rok(j):
-                continue
-            out.append({
-                "id": f"rok-{j.get('id')}",
-                "title": (j.get("position") or "").strip(),
-                "company": (j.get("company") or "").strip(),
-                "location": (j.get("location") or "").strip() or "Remote",
-                "url": j.get("url") or f"https://remoteok.com/remote-jobs/{j.get('slug', '')}",
-                "description": _clean_html(j.get("description")),
-                "tags": [t for t in (j.get("tags") or []) if isinstance(t, str) and t],
-                "salary": _salary_str(j.get("salary_min"), j.get("salary_max")),
-                "source": "RemoteOK",
-                "posted": str(j.get("date") or ""),
-            })
-    except Exception as e:  # noqa: BLE001
-        print(f"[fetchers] RemoteOK error: {e}")
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Remotive
-# ---------------------------------------------------------------------------
-
-def fetch_remotive():
+    except Exception:
+        return []
     out = []
-    try:
-        r = requests.get("https://remotive.com/api/remote-jobs", headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
-        for j in r.json().get("jobs", []):
-            if not j.get("title"):
-                continue
-            out.append({
-                "id": f"rem-{j.get('id')}",
-                "title": j["title"].strip(),
-                "company": (j.get("company_name") or "").strip(),
-                "location": (j.get("candidate_required_location") or "").strip() or "Remote",
-                "url": j.get("url") or "",
-                "description": _clean_html(j.get("description")),
-                "tags": [t for t in (j.get("tags") or []) if isinstance(t, str) and t],
-                "salary": _money_from_text(j.get("salary")),
-                "source": "Remotive",
-                "posted": str(j.get("publication_date") or ""),
-            })
-    except Exception as e:  # noqa: BLE001
-        print(f"[fetchers] Remotive error: {e}")
+    for j in data[1:]:
+        out.append({
+            "id": f"rok-{j.get('id','')}",
+            "title": j.get("position", ""),
+            "company": j.get("company", ""),
+            "location": j.get("location", "Remote"),
+            "description": " ".join((j.get("description", "") or "").split()[:300]),
+            "tags": j.get("tags", []),
+            "url": j.get("url", ""),
+            "source": "RemoteOK",
+            "salary": j.get("salary", "") or "",
+        })
     return out
 
 
-# ---------------------------------------------------------------------------
-# Jobicy
-# ---------------------------------------------------------------------------
+def fetch_remotive(category=None):
+    url = "https://remotive.com/api/remote-jobs?limit=100"
+    if category:
+        url += f"&category={category}"
+    r = _get(url)
+    if not r or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data.get("jobs", []):
+        out.append({
+            "id": f"rem-{j.get('id','')}",
+            "title": j.get("title", ""),
+            "company": j.get("company_name", ""),
+            "location": j.get("candidate_required_location", "Worldwide"),
+            "description": j.get("description", ""),
+            "tags": j.get("tags", []),
+            "url": j.get("url", ""),
+            "source": "Remotive",
+            "salary": j.get("salary", "") or "",
+        })
+    return out
+
 
 def fetch_jobicy():
-    out = []
+    r = _get("https://jobicy.com/api/v2/remote-jobs?count=50")
+    if not r or r.status_code != 200:
+        return []
     try:
-        r = requests.get(
-            "https://jobicy.com/api/v2/remote-jobs?count=100",
-            headers=HEADERS, timeout=TIMEOUT,
-        )
-        r.raise_for_status()
-        for j in r.json().get("jobs", []):
-            title = j.get("jobTitle")
-            if not title:
-                continue
-            industry = j.get("jobIndustry") or []
-            if isinstance(industry, str):
-                industry = [industry]
-            out.append({
-                "id": f"jcy-{j.get('id')}",
-                "title": title.strip(),
-                "company": (j.get("companyName") or "").strip(),
-                "location": (j.get("jobGeo") or "").strip() or "Remote",
-                "url": j.get("url") or "",
-                "description": _clean_html(j.get("jobDescription")),
-                "tags": [t for t in industry if isinstance(t, str) and t.strip()],
-                "salary": _money_from_text(j.get("salary")),
-                "source": "Jobicy",
-                "posted": str(j.get("pubDate") or ""),
-            })
-    except Exception as e:  # noqa: BLE001
-        print(f"[fetchers] Jobicy error: {e}")
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data.get("jobList", []):
+        out.append({
+            "id": f"jcy-{j.get('id','')}",
+            "title": j.get("jobTitle", ""),
+            "company": j.get("companyName", ""),
+            "location": j.get("jobGeo", "Remote"),
+            "description": j.get("jobDescription", ""),
+            "tags": [j.get("jobIndustry", "")] if j.get("jobIndustry") else [],
+            "url": j.get("url", ""),
+            "source": "Jobicy",
+            "salary": "",
+        })
     return out
-
-
-# ---------------------------------------------------------------------------
-# We Work Remotely (RSS)
-# ---------------------------------------------------------------------------
-
-WWR_FEEDS = {
-    "All": "https://weworkremotely.com/remote-jobs.rss",
-    "Programming": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
-    "DevOps/Sysadmin": "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss",
-    "Design": "https://weworkremotely.com/categories/remote-design-jobs.rss",
-    "Product": "https://weworkremotely.com/categories/remote-product-jobs.rss",
-    "Customer Support": "https://weworkremotely.com/categories/remote-customer-support-jobs.rss",
-}
 
 
 def fetch_wwr():
+    feeds = [
+        "https://weworkremotely.com/categories/remote-customer-support-jobs.rss",
+        "https://weworkremotely.com/categories/remote-sales-and-marketing-jobs.rss",
+    ]
     out = []
-    seen = set()
-    for label, url in WWR_FEEDS.items():
+    for url in feeds:
+        r = _get(url)
+        if not r or r.status_code != 200:
+            continue
         try:
-            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
-            r.raise_for_status()
-            for item in _parse_rss_items(r.content):
-                title = (item.findtext("title") or "").strip()
-                # formato actual: "Company: Job Title" (antes era "Job: Title at Company")
-                if title.lower().startswith("job:"):
-                    title_body = title[len("Job:"):].strip()
-                    if " at " in title_body:
-                        t, comp = title_body.rsplit(" at ", 1)
-                    else:
-                        t, comp = title_body, ""
-                elif ": " in title:
-                    comp, t = title.split(": ", 1)
-                    comp, t = comp.strip(), t.strip()
-                else:
-                    t, comp = title, ""
-                if not t:
-                    continue
-                fp = _norm(t + comp)
-                if fp in seen:
-                    continue
-                seen.add(fp)
-                out.append({
-                    "id": f"wwr-{fp}",
-                    "title": t.strip(),
-                    "company": comp.strip(),
-                    "location": "Remote",
-                    "url": (item.findtext("link") or "").strip(),
-                    "description": _clean_html(item.findtext("description")),
-                    "tags": [label],
-                    "salary": "",
-                    "source": "WeWorkRemotely",
-                    "posted": (item.findtext("pubDate") or "").strip(),
-                })
-        except Exception as e:  # noqa: BLE001
-            print(f"[fetchers] WWR ({label}) error: {e}")
+            root = ET.fromstring(r.content)
+        except Exception:
+            continue
+        for item in root.findall(".//item"):
+            title = item.findtext("title", "")
+            link = item.findtext("link", "")
+            desc = item.findtext("description", "")
+            company = ""
+            if " at " in title:
+                company = title.split(" at ")[-1].split(":")[0].strip()
+            out.append({
+                "id": f"wwr-{link.split('/')[-1] if link else title}",
+                "title": title,
+                "company": company,
+                "location": "Remote",
+                "description": _clean_html(desc),
+                "tags": [],
+                "url": link,
+                "source": "WeWorkRemotely",
+                "salary": "",
+            })
     return out
 
-
-# ---------------------------------------------------------------------------
-# Arbeitnow (remoto únicamente)
-# ---------------------------------------------------------------------------
 
 def fetch_arbeitnow():
-    out = []
-    for page in (1, 2):
-        try:
-            r = requests.get(
-                f"https://www.arbeitnow.com/api/job-board-api?remote=true&page={page}",
-                headers=HEADERS, timeout=TIMEOUT,
-            )
-            r.raise_for_status()
-            for j in r.json().get("data", []):
-                if not j.get("title") or not j.get("remote"):
-                    continue
-                out.append({
-                    "id": f"arn-{j.get('slug')}",
-                    "title": j["title"].strip(),
-                    "company": (j.get("company_name") or "").strip(),
-                    "location": (j.get("location") or "").strip() or "Remote",
-                    "url": j.get("url") or f"https://www.arbeitnow.com/jobs/{j.get('slug')}",
-                    "description": _clean_html(j.get("description")),
-                    "tags": [t for t in (j.get("tags") or []) if isinstance(t, str) and t],
-                    "salary": "",
-                    "source": "Arbeitnow",
-                    "posted": str(j.get("created_at") or ""),
-                })
-        except Exception as e:  # noqa: BLE001
-            print(f"[fetchers] Arbeitnow error: {e}")
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Python.org Jobs (RSS, solo remotos)
-# ---------------------------------------------------------------------------
-
-def fetch_pythonjobs():
-    out = []
+    r = _get("https://www.arbeitnow.com/api/job-board-api?remote=true")
+    if not r or r.status_code != 200:
+        return []
     try:
-        r = requests.get("https://www.python.org/jobs/feed/rss/", headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
-        for item in _parse_rss_items(r.content):
-            title = (item.findtext("title") or "").strip()  # "Role, Company"
-            desc = _clean_html(item.findtext("description"))
-            if not title:
-                continue
-            if ", " in title:
-                role, comp = title.rsplit(", ", 1)
-            else:
-                role, comp = title, ""
-            low = f"{title} {desc}".lower()
-            if "remote" not in low:
-                continue  # solo ofertas remotas
-            out.append({
-                "id": f"pyj-{_norm(title)}",
-                "title": role.strip(),
-                "company": comp.strip(),
-                "location": "Remote",
-                "url": (item.findtext("link") or "").strip(),
-                "description": desc,
-                "tags": ["Python"],
-                "salary": "",
-                "source": "PythonJobs",
-                "posted": (item.findtext("pubDate") or "").strip(),
-            })
-    except Exception as e:  # noqa: BLE001
-        print(f"[fetchers] PythonJobs error: {e}")
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Himalayas (API pública con +100k ofertas; filtro remote)
-# ---------------------------------------------------------------------------
-
-def _cat_names(cats):
-    names = []
-    for c in cats or []:
-        if isinstance(c, str):
-            names.append(c)
-        elif isinstance(c, dict):
-            names.append(str(c.get("name") or c.get("title") or ""))
-    return [n for n in names if n][:8]
-
-
-def fetch_himalayas(pages=5, per_page=20):
+        data = r.json()
+    except Exception:
+        return []
     out = []
-    # Himalayas bloquea User-Agents "de navegador" pero acepta uno simple
-    hdr = {**HEADERS, "User-Agent": "Mozilla/5.0 (jobhunter)"}
-    for offset in range(0, pages * per_page, per_page):
-        try:
-            r = requests.get(
-                "https://himalayas.app/jobs/api",
-                params={"remote": "true", "limit": per_page, "offset": offset},
-                headers=hdr, timeout=TIMEOUT,
-            )
-            r.raise_for_status()
-            jobs = r.json().get("jobs", [])
-            if not jobs:
-                break
-            for j in jobs:
-                title = j.get("title")
-                if not title:
-                    continue
-                sal_parts = []
-                mn, mx = j.get("minSalary"), j.get("maxSalary")
-                cur = j.get("currency") or "USD"
-                if mn and mx and str(mn) != str(mx):
-                    sal_parts.append(f"{mn} - {mx} {cur}")
-                elif mn:
-                    sal_parts.append(f"{mn} {cur}")
-                elif mx:
-                    sal_parts.append(f"{mx} {cur}")
-                if j.get("salaryPeriod"):
-                    sal_parts.append(str(j["salaryPeriod"]))
-                loc = j.get("locationRestrictions") or []
-                loc_str = ", ".join(str(x) for x in loc[:4])
-                if not loc_str:
-                    loc_str = "Remote (worldwide)"
-                guid = j.get("guid") or ""
-                # el guid puede ser una URL completa: limpiar para que el ID
-                # sea un nombre de carpeta válido (sin / ni :)
-                guid_clean = re.sub(r"[^a-z0-9]+", "-", (guid or "").lower()).strip("-")
-                out.append({
-                    "id": f"him-{guid_clean or _norm(title + str(j.get('companyName', '')))}",
-                    "title": title.strip(),
-                    "company": (j.get("companyName") or "").strip(),
-                    "location": loc_str,
-                    "url": j.get("applicationLink") or j.get("guid") or "",
-                    "description": _clean_html(j.get("description")),
-                    "tags": _cat_names(j.get("categories")),
-                    "salary": " ".join(sal_parts),
-                    "source": "Himalayas",
-                    "posted": str(j.get("pubDate") or ""),
-                })
-        except Exception as e:  # noqa: BLE001
-            print(f"[fetchers] Himalayas error: {e}")
-            break
+    for j in data.get("data", []):
+        out.append({
+            "id": f"arn-{j.get('slug','')}",
+            "title": j.get("title", ""),
+            "company": j.get("company_name", ""),
+            "location": "Remote",
+            "description": j.get("description", ""),
+            "tags": j.get("tags", []),
+            "url": j.get("url", ""),
+            "source": "Arbeitnow",
+            "salary": j.get("salary", "") or "",
+        })
     return out
 
 
-# ---------------------------------------------------------------------------
-# todo junto
-# ---------------------------------------------------------------------------
+def fetch_cryptocurrencyjobs():
+    r = _get("https://cryptocurrencyjobs.co/index.xml")
+    if not r or r.status_code != 200:
+        return []
+    try:
+        root = ET.fromstring(r.content)
+    except Exception:
+        return []
+    out = []
+    for item in root.findall(".//item"):
+        title = item.findtext("title", "")
+        link = item.findtext("link", "")
+        desc = item.findtext("description", "")
+        company = ""
+        if " at " in title:
+            company = title.split(" at ")[-1].strip()
+        out.append({
+            "id": f"ccj-{link.split('/')[-1] if link else title}",
+            "title": title,
+            "company": company,
+            "location": "",
+            "description": _clean_html(desc),
+            "tags": [],
+            "url": link,
+            "source": "CryptocurrencyJobs",
+            "salary": "",
+        })
+    return out
 
-def fetch_all():
-    """Descarga todas las fuentes y deduplica por (empresa + puesto)."""
-    raw = []
-    for fn in (fetch_remoteok, fetch_remotive, fetch_jobicy, fetch_wwr,
-               fetch_arbeitnow, fetch_pythonjobs, fetch_himalayas,
-               fetch_ats_boards):
-        raw.extend(fn())
 
+def fetch_web3career():
+    r = _get("https://web3.career/")
+    if not r or r.status_code != 200:
+        return []
+    ld_blocks = re.findall(r'<script type="application/ld\+json">(.+?)</script>', r.text, re.S)
+    out = []
     seen = set()
-    deduped = []
-    for j in raw:
-        fp = _norm(j["company"] + j["title"])
+    for block in ld_blocks:
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue
+        items = []
+        if isinstance(data, dict) and "@graph" in data:
+            items = [g for g in data["@graph"] if isinstance(g, dict) and g.get("@type") == "JobPosting"]
+        elif isinstance(data, list):
+            items = [g for g in data if isinstance(g, dict) and g.get("@type") == "JobPosting"]
+        elif isinstance(data, dict) and data.get("@type") == "JobPosting":
+            items = [data]
+        for it in items:
+            title = it.get("title", "")
+            org = it.get("hiringOrganization", {})
+            company = org.get("name", "") if isinstance(org, dict) else str(org)
+            loc_obj = it.get("jobLocation", {})
+            location = ""
+            if isinstance(loc_obj, dict):
+                addr = loc_obj.get("address", {})
+                if isinstance(addr, dict):
+                    location = addr.get("addressLocality", "") or addr.get("addressCountry", "")
+            url = it.get("url", "") or it.get("@id", "") or ""
+            desc = _clean_html(it.get("description", "") or "")
+            fp = (title, company)
+            if fp in seen:
+                continue
+            seen.add(fp)
+            out.append({
+                "id": f"w3c-{url.split('/')[-1] if url else title}",
+                "title": title,
+                "company": company,
+                "location": location,
+                "description": desc,
+                "tags": [],
+                "url": url,
+                "source": "Web3Career",
+                "salary": "",
+            })
+    return out
+
+
+# ============================================================================
+# Fetchers ATS (Greenhouse, Lever, Ashby, Workable)
+# ============================================================================
+
+def _normalize_ats_job(j, source, ats_name):
+    if not j.get("title"):
+        return None
+    url = j.get("url") or j.get("absolute_url") or j.get("apply_url") or j.get("hostedUrl") or ""
+    if not url:
+        return None
+    loc = j.get("location", "")
+    if isinstance(loc, dict):
+        loc = loc.get("name", "")
+    desc = j.get("description") or j.get("content") or ""
+    if isinstance(desc, str) and "<" in desc:
+        desc = _clean_html(desc)
+    elif isinstance(desc, str):
+        desc = desc[:7000]
+    salary = ""
+    for k in ("salary", "salary_range", "compensation"):
+        v = j.get(k)
+        if v:
+            if isinstance(v, dict):
+                salary = v.get("value", "") or f"{v.get('min', '')}-{v.get('max', '')}"
+            else:
+                salary = str(v)
+            break
+    dept = ""
+    if j.get("departments"):
+        if isinstance(j["departments"], list) and j["departments"]:
+            dept = j["departments"][0].get("name", "")
+    tags = []
+    if j.get("tags"):
+        tags = j["tags"] if isinstance(j["tags"], list) else []
+    if dept:
+        tags.append(dept)
+    return {
+        "id": f"{ats_name.lower()}-{j.get('id', url.split('/')[-1])}",
+        "title": j.get("title", ""),
+        "company": source,
+        "location": loc,
+        "description": desc,
+        "tags": tags,
+        "url": url,
+        "source": ats_name,
+        "salary": salary,
+    }
+
+
+def fetch_greenhouse(board, company_name=None):
+    company_name = company_name or board.title()
+    r = _get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true")
+    if not r or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data.get("jobs", []):
+        norm = _normalize_ats_job(j, company_name, f"GH-{board}")
+        if norm:
+            out.append(norm)
+    return out
+
+
+def fetch_lever(company, company_name=None):
+    company_name = company_name or company.title()
+    r = _get(f"https://api.lever.co/v0/postings/{company}?mode=json")
+    if not r or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data:
+        norm = _normalize_ats_job({
+            "id": j.get("id"),
+            "title": j.get("text", ""),
+            "url": j.get("hostedUrl") or j.get("applyUrl", ""),
+            "location": j.get("categories", {}).get("location", ""),
+            "description": _clean_html(j.get("description", "")),
+            "tags": list(j.get("categories", {}).values()) if j.get("categories") else [],
+            "department": j.get("categories", {}).get("team", ""),
+        }, company_name, f"LV-{company}")
+        if norm:
+            out.append(norm)
+    return out
+
+
+def fetch_ashby(company, company_name=None):
+    company_name = company_name or company.title()
+    r = _get(f"https://jobs.ashbyhq.com/{company}/jobs")
+    if not r or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data.get("jobs", []):
+        norm = _normalize_ats_job({
+            "id": j.get("id"),
+            "title": j.get("title", ""),
+            "url": f"https://jobs.ashbyhq.com/{company}/{j.get('id','')}",
+            "location": j.get("location", ""),
+            "description": j.get("descriptionHtml", "") or j.get("description", ""),
+            "department": j.get("department", ""),
+        }, company_name, f"ASH-{company}")
+        if norm:
+            out.append(norm)
+    return out
+
+
+def fetch_workable(company, company_name=None):
+    company_name = company_name or company.title()
+    r = _get(f"https://apply.workable.com/api/v1/widget/accounts/{company}")
+    if not r or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    out = []
+    for j in data.get("jobs", []):
+        norm = _normalize_ats_job({
+            "id": j.get("shortcode") or j.get("id"),
+            "title": j.get("title", ""),
+            "url": j.get("url") or f"https://apply.workable.com/{company}/j/{j.get('shortcode','')}",
+            "location": j.get("location", {}).get("city", "") if isinstance(j.get("location"), dict) else j.get("location", ""),
+            "description": _clean_html(j.get("description", "")),
+            "department": j.get("department", ""),
+        }, company_name, f"WB-{company}")
+        if norm:
+            out.append(norm)
+    return out
+
+
+# ============================================================================
+# Listas de boards ATS
+# ============================================================================
+
+GREENHOUSE_BOARDS = [
+    ("coinbase", "Coinbase"),
+    ("kraken", "Kraken"),
+    ("gemini", "Gemini"),
+    ("binance", "Binance"),
+    ("crypto", "Crypto.com"),
+    ("okx", "OKX"),
+    ("blockchain", "Blockchain.com"),
+    ("chainalysis", "Chainalysis"),
+    ("fireblocks", "Fireblocks"),
+    ("circle", "Circle"),
+    ("consensys", "ConsenSys"),
+    ("opensea", "OpenSea"),
+    ("ramp", "Ramp"),
+    ("brex", "Brex"),
+    ("deel", "Deel"),
+    ("remote", "Remote"),
+    ("invisible-technologies", "Invisible Technologies"),
+    ("gitlab", "GitLab"),
+    ("datadog", "Datadog"),
+    ("snyk", "Snyk"),
+    ("dropbox", "Dropbox"),
+    ("twilio", "Twilio"),
+    ("github", "GitHub"),
+    ("elastic", "Elastic"),
+    ("intercom", "Intercom"),
+    ("notion", "Notion"),
+    ("miro", "Miro"),
+    ("stripe", "Stripe"),
+    ("wise", "Wise"),
+    ("dlocal", "dLocal"),
+]
+
+LEVER_BOARDS = [
+    ("kraken", "Kraken"),
+    ("bitso", "Bitso"),
+    ("ripio", "Ripio"),
+    ("lemon", "Lemon"),
+    ("buenbit", "Buenbit"),
+    ("bitrefill", "Bitrefill"),
+    ("bitwage", "Bitwage"),
+    ("paxful", "Paxful"),
+    ("keyrock", "Keyrock"),
+    ("wintermute", "Wintermute"),
+    ("modulr", "Modulr"),
+    ("rain", "Rain"),
+    ("meru", "Meru"),
+    ("partnerhero", "PartnerHero"),
+    ("modsquad", "ModSquad"),
+    ("taskus", "TaskUs"),
+    ("5ca", "5CA"),
+    ("boldr", "Boldr"),
+    ("oyster", "Oyster"),
+    ("toptal", "Toptal"),
+    ("automattic", "Automattic"),
+    ("canonical", "Canonical"),
+    ("buffer", "Buffer"),
+    ("hotjar", "Hotjar"),
+    ("safetywing", "SafetyWing"),
+    ("supercr", "Superside"),
+]
+
+ASHBY_BOARDS = [
+    ("supportyourapp", "SupportYourApp"),
+    ("modulr-finance", "Modulr Finance"),
+    ("linear", "Linear"),
+    ("ramp", "Ramp"),
+    ("vanta", "Vanta"),
+    ("mercury", "Mercury"),
+    ("gusto", "Gusto"),
+    ("watershed", "Watershed"),
+    ("maven", "Maven"),
+    ("retool", "Retool"),
+    ("scaleai", "Scale AI"),
+]
+
+WORKABLE_BOARDS = [
+    ("tdcx", "TDCX"),
+    ("peaksupport", "Peak Support"),
+    ("vee", "Vee"),
+    ("cloudtask", "CloudTask"),
+    ("meru", "Meru"),
+    ("messagebird", "MessageBird"),
+    ("bitso", "Bitso"),
+]
+
+
+def fetch_ats_boards():
+    """Descarga todas las ATS configuradas."""
+    out = []
+    for board, name in GREENHOUSE_BOARDS:
+        try:
+            jobs = fetch_greenhouse(board, name)
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[ats] GH {board} error: {e}")
+    for board, name in LEVER_BOARDS:
+        try:
+            jobs = fetch_lever(board, name)
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[ats] LV {board} error: {e}")
+    for board, name in ASHBY_BOARDS:
+        try:
+            jobs = fetch_ashby(board, name)
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[ats] ASH {board} error: {e}")
+    for board, name in WORKABLE_BOARDS:
+        try:
+            jobs = fetch_workable(board, name)
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[ats] WB {board} error: {e}")
+    return out
+
+
+# ============================================================================
+# LinkedIn Guest API (queries LATAM-focused, bilingüe ES/EN)
+# ============================================================================
+
+_LINKEDIN_QUERIES = [
+    # Customer service / support / care / success (EN, global)
+    ("customer service", "Latin America"),
+    ("customer service", "Mexico"),
+    ("customer service", "Colombia"),
+    ("customer service", "Argentina"),
+    ("customer service", "Chile"),
+    ("customer service", "Peru"),
+    ("customer service", "Brazil"),
+    ("customer support", "Latin America"),
+    ("customer support", "Mexico"),
+    ("customer support", "Colombia"),
+    ("customer support", "Argentina"),
+    ("customer care", "Latin America"),
+    ("customer care", "Mexico"),
+    ("customer success", "Latin America"),
+    ("customer success", "Mexico"),
+    ("client support", "Latin America"),
+    ("client services", "Latin America"),
+    # Soporte en ESPAÑOL
+    ("soporte al cliente", "Latin America"),
+    ("soporte al cliente", "Mexico"),
+    ("soporte al cliente", "Colombia"),
+    ("atención al cliente", "Latin America"),
+    ("atención al cliente", "Mexico"),
+    ("atención al cliente", "Colombia"),
+    ("servicio al cliente", "Latin America"),
+    ("servicio al cliente", "Mexico"),
+    ("servicio al cliente", "Argentina"),
+    ("asistente de soporte", "Latin America"),
+    # Chat / live chat / help desk
+    ("chat support", "Latin America"),
+    ("chat support", "Mexico"),
+    ("live chat", "Latin America"),
+    ("help desk", "Latin America"),
+    ("technical support", "Latin America"),
+    ("technical support", "Mexico"),
+    ("soporte técnico", "Latin America"),
+    ("soporte técnico", "Mexico"),
+    # Community / moderación
+    ("community manager", "Latin America"),
+    ("community moderator", "Latin America"),
+    ("moderador de comunidad", "Latin America"),
+    ("gestor de comunidad", "Latin America"),
+    # Operations
+    ("operations", "Latin America"),
+    ("operations associate", "Latin America"),
+    ("operaciones", "Latin America"),
+    ("asistente de operaciones", "Latin America"),
+    # Bilingüe
+    ("bilingual customer service", "Latin America"),
+    ("bilingual customer service", "Mexico"),
+    ("spanish customer service", "Latin America"),
+    ("spanish customer support", "Latin America"),
+    ("bilingual support", "Latin America"),
+    ("atención bilingüe", "Latin America"),
+    # Crypto
+    ("crypto support", "Latin America"),
+    ("crypto customer service", "Latin America"),
+    ("web3 community", "Latin America"),
+    ("crypto operations", "Latin America"),
+    ("soporte crypto", "Latin America"),
+    # AI
+    ("ai trainer", "Latin America"),
+    ("ai trainer", "Mexico"),
+    ("ai tutor", "Latin America"),
+    ("data annotator", "Latin America"),
+    ("data annotator", "Mexico"),
+    ("prompt engineer", "Latin America"),
+    ("entrenador de IA", "Latin America"),
+    # VA
+    ("virtual assistant", "Latin America"),
+    ("virtual assistant", "Mexico"),
+    ("data entry", "Latin America"),
+    ("asistente virtual", "Latin America"),
+    ("capturista de datos", "Mexico"),
+    # Content
+    ("content writer", "Latin America"),
+    ("copywriter", "Latin America"),
+    ("redactor", "Latin America"),
+    ("escritor de contenido", "Latin America"),
+    # Trust & Safety
+    ("trust and safety", "Latin America"),
+    ("risk analyst", "Latin America"),
+    ("compliance analyst", "Latin America"),
+    ("kyc analyst", "Latin America"),
+    ("fraud analyst", "Latin America"),
+    ("analista de cumplimiento", "Latin America"),
+    # Trading
+    ("junior trader", "Latin America"),
+    ("trading analyst", "Latin America"),
+    # Sales
+    ("inbound sales", "Latin America"),
+    ("account executive", "Latin America"),
+    ("fintech", "Latin America"),
+    # Ubicaciones específicas
+    ("customer support", "Bogota"),
+    ("customer support", "Lima"),
+    ("customer support", "Buenos Aires"),
+    ("customer support", "Santiago"),
+    ("customer support", "CDMX"),
+    ("customer support", "Quito"),
+    ("customer support", "San Jose"),
+    ("customer support", "Asuncion"),
+    ("virtual assistant", "Bogota"),
+    ("virtual assistant", "CDMX"),
+    ("virtual assistant", "Lima"),
+    ("data entry", "Mexico City"),
+    ("data entry", "Buenos Aires"),
+    # Remote global
+    ("remote LATAM", ""),
+    ("remote South America", ""),
+    ("remoto LATAM", ""),
+]
+
+
+def fetch_linkedin_latam():
+    """LinkedIn Guest API: ~120 queries LATAM-focused. Solo pasamos el link."""
+    out = []
+    seen_ids = set()
+    for kw, loc in _LINKEDIN_QUERIES:
+        try:
+            params = {"keywords": kw, "f_WT": "2"}
+            if loc:
+                params["location"] = loc
+            r = _get(
+                "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
+                params=params,
+            )
+            if not r or r.status_code != 200:
+                continue
+            titles = re.findall(
+                r'<h3[^>]*class="base-search-card__title"[^>]*>([^<]+)</h3>', r.text)
+            companies = re.findall(
+                r'<h4[^>]*class="base-search-card__subtitle"[^>]*>\s*<a[^>]*>([^<]+)</a>', r.text)
+            locations = re.findall(
+                r'<span class="job-search-card__location"[^>]*>([^<]+)</span>', r.text)
+            links = re.findall(
+                r'<a class="base-card__full-link[^"]*"[^>]*href="([^"]+)"', r.text)
+            n = min(len(titles), len(companies), len(locations), len(links))
+            for i in range(n):
+                oid_m = re.search(r"/view/(\d+)", links[i])
+                oid = oid_m.group(1) if oid_m else links[i]
+                if oid in seen_ids:
+                    continue
+                seen_ids.add(oid)
+                out.append({
+                    "id": f"li-{oid}",
+                    "title": titles[i].strip(),
+                    "company": companies[i].strip(),
+                    "location": locations[i].strip(),
+                    "description": "",
+                    "tags": [],
+                    "url": links[i],
+                    "source": "LinkedIn",
+                    "salary": "",
+                })
+        except Exception as e:
+            print(f"[linkedin {kw}/{loc}] error: {e}")
+    return out
+
+
+# ============================================================================
+# Deduplicación y orquestación
+# ============================================================================
+
+def _dedupe(jobs):
+    seen = set()
+    out = []
+    for j in jobs:
+        fp = _norm(j.get("company", "") + j.get("title", ""))
         if fp in seen:
             continue
         seen.add(fp)
-        if not j["description"] and not j["tags"]:
+        if not j.get("description") and not j.get("tags"):
             continue
-        deduped.append(j)
-    return deduped
+        out.append(j)
+    return out
+
+
+def fetch_all(include_linkedin=False, include_ats=True):
+    """Descarga todas las fuentes."""
+    out = []
+    for fn in (fetch_remoteok, fetch_remotive, fetch_jobicy, fetch_wwr,
+               fetch_arbeitnow, fetch_cryptocurrencyjobs, fetch_web3career):
+        try:
+            jobs = fn()
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[fetchers] {fn.__name__} error: {e}")
+    if include_ats:
+        try:
+            jobs = fetch_ats_boards()
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[fetchers] ats error: {e}")
+    if include_linkedin:
+        try:
+            jobs = fetch_linkedin_latam()
+            if jobs:
+                out.extend(jobs)
+        except Exception as e:
+            print(f"[fetchers] linkedin error: {e}")
+    return _dedupe(out)
 
 
 if __name__ == "__main__":
-    import json
-    jobs = fetch_all()
+    import sys
+    include_li = "--linkedin" in sys.argv
+    jobs = fetch_all(include_linkedin=include_li, include_ats=True)
     print(f"Total ofertas únicas: {len(jobs)}")
     from collections import Counter
-    for src, n in Counter(j["source"] for j in jobs).items():
+    for src, n in sorted(Counter(j["source"] for j in jobs).items()):
         print(f"  {src}: {n}")

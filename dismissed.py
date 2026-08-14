@@ -1,53 +1,50 @@
-"""
-Job Hunter - Lista de ofertas DESCARTADAS.
-El usuario puede descartar ofertas que no le interesan (aunque sean buenas
-matches) y el sistema nunca más se las muestra, sin necesidad de aplicarlas.
+"""dismissed.py - Tracking de ofertas descartadas.
+
+Persiste en data/dismissed.json: lista de ofertas que el usuario marcó
+como 'no me interesa' o 'descartar' desde Telegram.
 """
 import json
 import os
-import threading
-import time
 
 DISMISSED_PATH = "data/dismissed.json"
 
-_lock = threading.Lock()
 
-
-def load():
+def _load():
+    if not os.path.exists(DISMISSED_PATH):
+        return []
     try:
         with open(DISMISSED_PATH, "r", encoding="utf-8") as f:
-            items = json.load(f)
-            return items if isinstance(items, list) else []
+            d = json.load(f)
+            return d if isinstance(d, list) else []
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
 
-def save(items):
-    with _lock:
-        with open(DISMISSED_PATH, "w", encoding="utf-8") as f:
-            json.dump(items, f, ensure_ascii=False, indent=1)
+def _save(items):
+    with open(DISMISSED_PATH, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=1)
 
 
-def ids():
-    return {x.get("id") for x in load()}
-
-
-def add(offer_id, company="", title="", source=""):
-    items = load()
-    if any(x.get("id") == offer_id for x in items):
-        return items
-    items.insert(0, {
+def add(offer_id, company="", title=""):
+    """Marca una oferta como descartada. Idempotente."""
+    items = _load()
+    if any(i.get("id") == offer_id for i in items):
+        return False
+    from datetime import datetime
+    items.append({
         "id": offer_id,
         "company": company,
         "title": title,
-        "source": source,
-        "date": time.strftime("%Y-%m-%d"),
+        "dismissed_at": datetime.now().isoformat(timespec="seconds"),
     })
-    save(items)
-    return items
+    _save(items)
+    return True
 
 
-def remove(offer_id):
-    items = [x for x in load() if x.get("id") != offer_id]
-    save(items)
-    return items
+def ids():
+    """Devuelve el set de IDs descartadas."""
+    return {i.get("id", "") for i in _load() if i.get("id")}
+
+
+def all_items():
+    return _load()

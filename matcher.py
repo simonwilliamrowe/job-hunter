@@ -1,843 +1,20 @@
-"""
-Job Hunter — Motor de inteligencia de ofertas v2.
+"""Job Hunter - Matcher.
 
-Scoring ponderado por CARRIL (track): cada oferta recibe una puntuación
-0-100 por cada familia de puesto con pesos específicos, bandas de decisión
-(APPLY NOW / APPLY / REVIEW / IGNORE), desglose de motivos, parser salarial
-con marcadores 🔴🟡🟢 y persona de CV recomendada.
+Pipeline de scoring para ofertas de trabajo remoto. Modular y limpio.
+
+Etapas:
+1. Normalizar la oferta (title, text, salary).
+2. Aplicar filtros duros (idioma, ubicación, modalidad, scam).
+3. Calcular score con reglas declarativas.
+4. Asignar banda (APPLY / REVIEW / IGNORE).
 """
+
 import re
 from collections import Counter
 
-# ---------------------------------------------------------------------------
-# léxico por criterio
-# ---------------------------------------------------------------------------
-
-CRYPTO_KW = ["crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth", "cardano",
-             "solana", "blockchain", "web3", "defi", "dex", "cex", "exchange", "wallet",
-             "wallets", "ledger", "metamask", "phantom", "staking", "token", "tokens",
-             "tokenomics", "nft", "nfts", "dao", "daos", "airdrop", "custody", "seed phrase",
-             "private key", "public key", "gas fee", "transaction", "transactions",
-             "on-chain", "onchain", "kyc", "liquidity", "market cap", "trading", "binance",
-             "kraken", "kucoin", "bitget", "coinbase", "decentralized", "smart contract",
-             "layer 2", "bridge", "yield", "protocol", "tokenized", "stablecoin"]
-
-SUPPORT_KW = ["support", "customer service", "helpdesk", "help desk", "ticket", "tickets",
-              "zendesk", "intercom", "freshdesk", "live chat", "chat support", "email support",
-              "customer success", "account manager", "escalation", "sla", "csat",
-              "customer experience", "client support", "user support", "onboarding",
-              "troubleshoot", "troubleshooting", "faq", "knowledge base", "resolution",
-              "satisfaction", "queries", "inquiries", "agents", "support specialist"]
-
-COMMUNITY_KW = ["community", "moderation", "moderator", "discord", "telegram", "ambassador",
-                "engagement", "evangelist", "social", "forum", "forums", "reddit",
-                "user education", "educational content", "events", "meetup", "influencer",
-                "community manager", "community support", "content creation", "shorts"]
-
-RESEARCH_KW = ["research", "analyst", "analysis", "tokenomics", "due diligence", "diligence",
-               "fundamental", "market research", "competitive", "intelligence", "whitepaper",
-               "white paper", "data analysis", "report", "reports", "writeups", "coverage",
-               "dashboard", "metrics", "nansen", "dune", "glassnode", "on-chain analysis",
-               "research assistant", "researcher"]
-
-# Trading junior/entry-level: detecta ofertas tipo "Junior Crypto Trader",
-# "Entry Level Trader", "Trading Analyst (Junior)" etc. Cubre conceptos
-# técnicos (TA, indicators, order types, leverage, risk management) y
-# el lado de mercados (market, limit, spot, perp, futures, charts).
-TRADING_KW = ["trader", "trading", "trade", "trades", "market analysis", "technical analysis",
-              "chart", "charts", "charting", "candlestick", "candlesticks", "indicator",
-              "indicators", "rsi", "macd", "moving average", "moving averages", "fibonacci",
-              "support", "resistance", "trend", "trends", "breakout", "pattern", "patterns",
-              "volume", "market order", "market orders", "limit order", "limit orders",
-              "stop loss", "take profit", "leverage", "long", "short", "long position",
-              "short position", "spot", "perp", "perpetual", "perpetuals", "futures",
-              "options", "derivative", "derivatives", "order book", "orderbook",
-              "liquidity", "slippage", "spread", "spreads", "position size", "position sizing",
-              "risk management", "risk reward", "stop loss", "trailing stop", "swing trade",
-              "day trade", "day trading", "swing trading", "scalping", "scalp", "scalper",
-              "trade journal", "trading journal", "backtest", "backtesting", "strategy",
-              "strategies", "trading strategy", "trading strategies", "trade setup",
-              "price action", "market structure", "tradingview", "trading view", "binance",
-              "bybit", "okx", "bitfinex", "bitmex", "deribit", "order execution",
-              "exchange", "exchanges", "market maker", "market making", "trading desk",
-              "trading floor", "proprietary", "prop trading", "prop firm", "alpha",
-              "beta", "volatility", "vol", "open interest", "funding rate", "funding rates",
-              "liquidation", "liquidations"]
-
-FINTECH_KW = ["fintech", "payment", "payments", "banking", "bank", "remittance", "sepa",
-              "swift", "aml", "fraud", "chargeback", "reconciliation", "accounting", "risk",
-              "compliance", "money transfer", "merchant", "financial", "finance", "kym",
-              "kyc", "transfer", "transfers", "wires"]
-
-OPS_KW = ["operations", "ops", "process", "workflow", "workflows", "coordination",
-          "logistics", "scheduling", "reporting", "data entry", "automation", "admin",
-          "administrative", "vendor", "inventory", "quality assurance", "onboarding",
-          "offboarding", "operations associate", "operational"]
-
-TOOLS_KW = ["zendesk", "intercom", "freshdesk", "gorgias", "slack", "discord", "telegram",
-            "notion", "jira", "asana", "trello", "hubspot", "salesforce", "excel", "sheets",
-            "google workspace", "crm", "crisp", "front", "kustomer", "help scout", "helpscout",
-            "ticketing"]
-
-JUNIOR_KW = ["junior", "entry", "entry-level", "graduate", "trainee", "intern", "associate",
-             "2+ years", "1+ years", "0-2 years", "0-3 years", "no experience"]
-
-SENIOR_KW = ["senior", "lead", "head of", "principal", "staff", "director", "manager",
-             "5+ years", "7+ years", "10+ years", "expert"]
-
-ENGLISH_WORDS = set("""the and you your we our will are with this that for have has not but
-they from team work role position apply experience skills about what who when where please
-would could should also can more other such only their there these those than then them out
-over under into after before between just because each which while during within without
-through across among both few many most some any all own same too very just should now even
-""".split())
-
-EN_RE = re.compile(r"[a-z]{2,}")
-SPANISH_RE = re.compile(r"\b(spanish|español|biling[uo]e|bilingual)\b", re.I)
-def _kw_rx(k):
-    return re.compile(r"(?<![a-z0-9])" + re.escape(k) + r"(?![a-z0-9])")
-
-
-def _kw_count(text, kws, title_text="", title_weight=3.0, cap=10.0):
-    cnt = 0.0
-    for k in kws:
-        rx = _kw_rx(k)
-        if re.search(rx, title_text):
-            cnt += title_weight
-        elif re.search(rx, text):
-            cnt += 1.0
-    return min(1.0, cnt / cap)
-
-
-SPANISH_MARKERS = {
-    "el", "la", "los", "las", "de", "del", "para", "con", "por", "que", "como",
-    "trabajo", "trabajar", "empresa", "experiencia", "requisitos", "salario",
-    "años", "habilidades", "equipo", "remoto", "puesto", "candidato", "aplicar",
-    "vacante", "nuestra", "nuestro", "ser", "estar", "tener", "hacer", "más",
-    "menos", "entre", "sobre", "durante", "después", "antes", "también", "muy",
-    "bueno", "buena", "gran", "grande", "persona", "personas", "idioma",
-}
-
-# Marcadores de idiomas que el candidato NO habla.
-# IMPORTANTE: solo palabras ALTAMENTE específicas de cada idioma, no palabras
-# comunes que también existen en inglés (knowledge, support, manage, etc.).
-# Umbrales altos para evitar falsos positivos.
-GERMAN_MARKERS = {
-    # artículos y pronombres muy específicos
-    "und", "der", "die", "das", "wir", "sie", "ihnen", "ihre", "ihr",
-    "sich", "auch", "noch", "schon", "sehr", "über", "durch", "gegen",
-    "ohne", "unter", "zwischen", "während", "dagegen",
-    # sustantivos y verbos específicos
-    "kunden", "aufgaben", "tätigkeiten", "anforderungen", "kenntnisse",
-    "erfahrung", "bewerbung", "stelle", "stellenangebot", "mitarbeiter",
-    "unternehmen", "arbeit", "beruf", "bewerben", "vollzeit", "teilzeit",
-    "festanstellung", "praktikum", "ausbildung", "studium", "berufserfahrung",
-    "wechsel", "möglichkeit", "kennenzulernen", "freuen", "anfragen",
-    "kontakt", "anschrift", "bewerbungsschreiben", "lebenslauf", "zeugnisse",
-    "qualifikation", "weiterbildung", "gehalt", "verhandlung", "leistungen",
-    "anstellung", "vertrag", "woche", "monat", "täglich", "wochentags",
-    "kennzulernen", "interessiert", "gerne", "bitte", "vielen", "dank",
-    "möchten", "freuen", "wünschen", "verfügen", "erforderlich",
-    "wünschenswert", "ihrer", "unserer", "unseres", "dieser", "jedoch",
-    "allerdings", "außerdem", "darüber", "deshalb", "trotzdem",
-}
-
-FRENCH_MARKERS = {
-    # artículos y pronombres
-    "les", "des", "une", "nous", "vous", "ils", "elles", "leur", "leurs",
-    "être", "avoir", "fait", "faire", "dit", "dire", "aller", "venir", "voir",
-    "savoir", "pouvoir", "vouloir", "falloir", "avec", "pour", "dans",
-    "sur", "sous", "entre", "vers", "chez", "sans", "depuis", "pendant",
-    "avant", "après", "contre", "autour", "parmi",
-    # sustantivos y verbos específicos
-    "poste", "entreprise", "expérience", "candidature", "salaire", "cdi", "cdd",
-    "intérim", "stage", "alternance", "compétences", "qualification",
-    "responsabilités", "profil", "recherchons", "cherchons", "souhaitons",
-    "désirons", "postuler", "embaucher", "rémunération", "avantages",
-    "mutuelle", "transport", "tickets", "cadre", "employé", "salarié",
-    "chômeurs", "embauche", "recrutement", "embauchons", "français",
-    "métier", "carrière", "entreprise", "client", "fournisseur",
-    "gestion", "direction", "équipe", "département", "service",
-    "développeur", "ingénieur", "commercial", "vendeur", "comptable",
-    "architecte", "consultant", "assistant", "chargé", "responsable",
-    "nouveau", "nouvelle", "actuellement", "également", "cependant",
-    "toutefois", "néanmoins", "puisque", "lorsque", "aujourd'hui",
-}
-
-ITALIAN_MARKERS = {
-    # artículos y pronombres
-    "della", "delle", "questo", "questa", "questi", "queste", "quello",
-    "quella", "quelli", "quelle", "nostro", "nostra", "nostri", "nostre",
-    "vostro", "vostra", "vostri", "vostre", "essere", "avere",
-    "stato", "essendo", "sono", "siamo", "siete", "stanno", "stato",
-    "hanno", "aveva", "avevano", "sarà", "saranno", "stato", "dove",
-    "come", "quando", "perché", "quale", "quali", "molto", "poco",
-    "tanto", "troppo", "ancora", "sempre", "mai", "oggi", "ieri",
-    # sustantivos y verbos específicos
-    "lavoro", "lavorare", "lavoriamo", "azienda", "aziende", "stipendio",
-    "retribuzione", "collaborazione", "italiano", "inglese", "squadra",
-    "dipartimento", "smartworking", "remoto", "presenza", "ufficio",
-    "cliente", "clienti", "fornitore", "fornitori", "contratto",
-    "indeterminato", "determinato", "tempo", "stage", "tirocinio",
-    "apprendistato", "competenze", "qualifiche", "responsabilità",
-    "mansioni", "ricerchiamo", "cerchiamo", "desideriamo", "candidatura",
-    "inviare", "colloquio", "conoscenza", "madrelingua", "annuncio",
-    "posizione", "apertura", "chiusura", "inizio", "fine", "mese",
-    "anno", "giorno", "settimana", "persona", "persone", "ragazzo",
-    "ragazza", "uomo", "donna", "bambino", "famiglia", "amico",
-    "amica", "grande", "piccolo", "nuovo", "vecchio", "bello", "brutto",
-    "buongiorno", "buonasera", "arrivederci", "prego", "grazie", "scusa",
-    "scusi", "andare", "venire", "stare", "uscire", "entrare", "partire",
-    "arrivare", "trovare", "cercare", "guardare", "sentire", "parlare",
-}
-
-PORTUGUESE_MARKERS = {
-    # artículos y pronombres
-    "não", "são", "está", "estão", "também", "ainda", "sempre", "nunca",
-    "pode", "podem", "fazer", "temos", "têm", "ter", "ser", "sido",
-    "sido", "muito", "pouco", "todo", "toda", "todos", "todas", "cada",
-    "qualquer", "algum", "alguma", "alguns", "algumas", "nenhum",
-    "nenhuma", "outro", "outra", "outros", "outras", "mesmo", "mesma",
-    "mesmos", "mesmas", "tanto", "tanta", "tantos", "tantas",
-    "este", "esta", "estes", "estas", "isto", "isso", "aquilo",
-    "aquele", "aquela", "aqueles", "aquelas", "meu", "minha", "meus",
-    "minhas", "teu", "tua", "teus", "tuas", "seu", "sua", "seus", "suas",
-    "nosso", "nossa", "nossos", "nossas", "vosso", "vossa", "vossos",
-    "vossas", "quem", "que", "qual", "quais", "onde", "quando",
-    "como", "porque", "embora", "entretanto", "contudo", "porém",
-    # sustantivos y verbos específicos
-    "trabalho", "trabalhar", "empresa", "experiência", "salário", "cargo",
-    "vaga", "candidatura", "equipe", "departamento", "remoto", "presencial",
-    "escritório", "cliente", "clientes", "fornecedor", "contrato",
-    "indeterminado", "determinado", "estágio", "trainee", "jovem",
-    "aprendiz", "competências", "habilidades", "requisitos",
-    "responsabilidades", "procuramos", "buscamos", "desejável", "desejamos",
-    "conhecimento", "português", "inglês", "espanhol", "língua",
-    "fluente", "nativo", "contratação", "seleção", "recrutamento",
-    "candidato", "candidatos", "entrevista", "currículo", "empresa",
-    "sociedade", "fundação", "instituto", "associação", "federação",
-    "trabalhador", "empregado", "funcionário", "colaborador", "estagiário",
-}
-
-
-def detect_language(desc):
-    """Detecta el idioma del anuncio. Devuelve uno de:
-    'spanish', 'english', 'german', 'french', 'italian', 'portuguese', 'unknown'.
-
-    Estrategia: contar marcadores ESPECÍFICOS de cada idioma. Si hay señales
-    claras de un idioma no soportado, devolverlo. Si no, devolver 'english'
-    (los anuncios remotos globales son en inglés por default).
-
-    Para reducir falsos positivos, también miramos:
-    1. El umbral es relativo al total de palabras (>=3% de las palabras)
-    2. El idioma detectado debe ser MAYOR que el segundo más alto
-    """
-    low = (desc or "").lower()
-    words = EN_RE.findall(low)
-    if not words:
-        return "english"  # sin palabras reconocibles -> asumimos inglés
-    total_words = len(words)
-    counts = {
-        "spanish": sum(1 for w in words if w in SPANISH_MARKERS),
-        "german": sum(1 for w in words if w in GERMAN_MARKERS),
-        "french": sum(1 for w in words if w in FRENCH_MARKERS),
-        "italian": sum(1 for w in words if w in ITALIAN_MARKERS),
-        "portuguese": sum(1 for w in words if w in PORTUGUESE_MARKERS),
-    }
-    # Idioma ganador: el de mayor count
-    sorted_langs = sorted(counts.items(), key=lambda x: -x[1])
-    lang, score = sorted_langs[0]
-    second_score = sorted_langs[1][1]
-    # Condiciones para considerar "señal clara":
-    # 1. Al menos 8 matches absolutos
-    # 2. >= 3% de las palabras son del idioma
-    # 3. El score es 2x mayor que el segundo idioma más alto
-    if (score >= 8
-        and score / total_words >= 0.03
-        and score >= second_score * 2
-        and lang in UNSUPPORTED_LANGUAGES):
-        return lang
-    return "english"  # sin señales claras -> asumimos inglés
-
-
-def is_english(desc):
-    """DEPRECATED: usar detect_language() en su lugar.
-    Devuelve True si el anuncio está en inglés (o en un idioma no detectado).
-    Devuelve False solo si es español (que sí soportamos)."""
-    lang = detect_language(desc)
-    return lang != "spanish"
-
-
-# Lista de idiomas NO soportados por el candidato.
-# Si una oferta está en uno de estos idiomas, debe ser IGNOREada.
-UNSUPPORTED_LANGUAGES = {"german", "french", "italian", "portuguese"}
-
-
-def is_unsupported_language(desc):
-    """True si el anuncio está en un idioma que el candidato NO habla
-    (alemán, francés, italiano, portugués). Requiere señales MUY claras
-    (>12 marcadores) para evitar falsos positivos."""
-    return detect_language(desc) in UNSUPPORTED_LANGUAGES
-
-
-def parse_salary(raw):
-    """Convierte cualquier texto de salario a USD/mes. Devuelve dict o None."""
-    if not raw or not str(raw).strip():
-        return None
-    t = str(raw).lower()
-    per_hour = bool(re.search(r"per\s*hour|/h\b|hourly|\bhr\b", t))
-    per_month = bool(re.search(r"per\s*month|/m\b|monthly|mo\b", t))
-    per_year = bool(re.search(r"per\s*(year|annum)|/y\b|/yr\b|annual|yearly|k\s*$", t))
-    vals = []
-    for n in re.findall(r"\d[\d.,]*", t):
-        n2 = n.replace(",", "")
-        if "." in n2:
-            a, b = n2.split(".", 1)
-            n2 = a + b if len(b) == 3 else a + "." + b[:2]
-        try:
-            vals.append(float(n2))
-        except ValueError:
-            pass
-    if not vals:
-        return None
-    lo, hi = min(vals), max(vals)
-    if lo < 1000 and ("k" in t or (hi < 1000 and not per_hour and not per_month)):
-        lo, hi = lo * 1000, hi * 1000
-    cur = "USD"
-    if "€" in t or "eur" in t:
-        cur = "EUR"
-    if "£" in t or "gbp" in t:
-        cur = "GBP"
-    if per_hour:
-        lo, hi = lo * 160, hi * 160
-        period = "mensual (desde hourly)"
-    elif per_year or lo > 20000:
-        lo, hi = lo / 12, hi / 12
-        period = "mensual (desde annual)"
-    else:
-        period = "mensual"
-    return {"min": round(lo), "max": round(hi), "currency": cur, "period": period, "raw": str(raw)[:70]}
-
-
-def salary_marker(parsed, salary_cfg):
-    """🔴 por debajo del mínimo · 🟡 límite · 🟢 cumple objetivo · ⚪ sin dato."""
-    if not parsed:
-        return {"marker": "⚪", "label": "sin salario publicado", "ok": None}
-    lo = parsed["min"]
-    target = salary_cfg.get("target_min", 1300)
-    floor = salary_cfg.get("floor", 1000)
-    if lo >= target:
-        return {"marker": "🟢", "label": f"cumple objetivo (${lo:,}/mes)", "ok": True}
-    if lo >= floor:
-        return {"marker": "🟡", "label": f"aceptable (${lo:,}/mes)", "ok": True}
-    return {"marker": "🔴", "label": f"bajo mínimo (${lo:,}/mes)", "ok": False}
-
-
-def latam_score(job):
-    loc = (job.get("location") or "").lower()
-    if not loc:
-        return 1.0
-    if any(x in loc for x in ("europe", "united kingdom", "uk ")) and "america" not in loc:
-        return 0.5
-    if any(x in loc for x in ("united states", "usa")) and "worldwide" not in loc:
-        return 0.6
-    return 1.0
-
-
-
-# ---------------------------------------------------------------------------
-# tracks ampliados: voice/audio, IA content, administrativo básico
-# ---------------------------------------------------------------------------
-
-VOICE_KW = ["voice", "voice over", "voiceover", "voice actor", "voice recording",
-            "voice recording for ai", "voice data", "narration", "narrator",
-            "audiobook", "audiobooks", "tts", "text to speech", "speech",
-            "read", "reading", "storytelling", "audio content", "podcast",
-            "dubbing", "subtitl", "transcription", "transcriber", "caption",
-            "annotation", "annotator", "data labeling", "data labelling",
-            "training data", "prompt", "prompting", "evaluation", "evaluator",
-            "audio", "sound", "recording", "voice training", "vocal"]
-
-AI_CONTENT_KW = ["ai image", "ai video", "image generation", "image editing",
-                 "video editing", "video generation", "generative ai", "midjourney",
-                 "stable diffusion", "ai tools", "content creation", "content creator",
-                 "prompt engineering", "prompt engineer", "chatgpt", "claude",
-                 "copywriting", "script", "scripts", "storyboard", "visual content",
-                 "creative content", "shorts", "youtube", "reels", "tiktok",
-                 "photography", "photo editing", "creative", "design", "graphic",
-                 "multimedia", "video", "image", "creative ai"]
-
-ADMIN_KW = ["data entry", "administrative assistant", "admin assistant", "virtual assistant",
-            "personal assistant", "office assistant", "scheduling", "calendar management",
-            "inbox management", "email management", "bookkeeping", "invoicing",
-            "record keeping", "filing", "spreadsheet", "excel", "google sheets",
-            "customer records", "order processing", "back office", "documentation",
-            "reception", "secretary", "administrative support", "data management",
-            "database", "reporting", "transcription", "typing", "data processing"]
-
-
-# ---------------------------------------------------------------------------
-# carriles con pesos (suman 100)
-# ---------------------------------------------------------------------------
-
-PRIORITY_HANDICAP = 12  # puntos de ventaja para tracks principales (crypto/fintech/support)
-CREATIVE_ROLE_BLOCK = re.compile(
-    r"\b(video editor|video editing|video editor specialist|video editing specialist|"
-    r"graphic designer|graphic design|motion designer|motion graphics|ux designer|"
-    r"ui designer|product designer|brand designer|illustrator|3d artist|3d designer|"
-    r"sound designer|audio engineer|video producer|video production|editor for video|"
-    r"video post[- ]production)\b", re.I)
-
-# PAGO INESTABLE (lo que NO sirve): por proyecto suelto, gigs de una vez,
-# comisión pura, por tarea. "Freelance" o "contractor" SOLOS no bloquean:
-# un contrato freelance/contractor con pago mensual estable es aceptable.
-PER_PROJECT_RE = re.compile(
-    r"\b(per project|project[- ]based|per gig|one[- ]time|per task|piece work|"
-    r"100% commission|commission[- ]only|paid per (project|task|gig|word|page|recording)|"
-    r"pay[- ]per|per assignment|short[- ]term gig)\b", re.I)
-HOURLY_RE = re.compile(r"\b(per hour|hourly|per hr|/hr\b|by the hour)\b", re.I)
-# PRESENCIA FÍSICA OBLIGATORIA (no puede: vive en Paraguay, no viaja)
-IN_PERSON_RE = re.compile(
-    r"\b(onboard(ing)? (in person|on[- ]site|at our office|in one of our offices)|"
-    r"in[- ]person onboarding|on[- ]site onboarding|must (attend|complete|do) onboarding|"
-    r"onboarding (is|will be) (in person|on[- ]site|at our)|"
-    r"physical office|our offices (in|are)|relocat\w* required|must relocat\w*|"
-    r"must (work|be|come) (from|in|at|into) (the )?office|work from (the )?office|"
-    r"office (attendance|presence|presencial)|in[- ]office (requirement|days|attendance)|"
-    r"required to (be|work|come) (in|at|into) (the )?office|come into the office)\b", re.I)
-
-# HÍBRIDO / PRESENCIA PARCIAL: no bloquea del todo pero nunca verde
-HYBRID_RE = re.compile(
-    r"\bhybrid\b|on[- ]site (days|requirement)|in[- ]office (days|requirement)|"
-    r"office[- ]based|presencial (days|requirement)|work from office (days|some)", re.I)
-
-# señales POSITIVAS de relación estable (empleo o contrato largo)
-CONTRACT_OK_RE = re.compile(
-    r"\b(contract|contractor|independent contractor|long[- ]term|ongoing|"
-    r"full[- ]time|full time|permanent|monthly (salary|rate|retainer)|fixed monthly|"
-    r"regular (income|work|schedule)|stable|recurring|aut[oó]nomo|contratista)\b", re.I)
-BONUS_RE = re.compile(r"\b(bonus|commission|incentive|ote\b|performance[- ]based)\b", re.I)
-
-TRACKS = {
-    "crypto_support": {
-        "label": "Crypto Support", "persona": "crypto_support", "priority": 1,
-        "weights": {"crypto": 22, "support": 20, "english": 10, "remote": 10, "latam": 8,
-                    "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "crypto_operations": {
-        "label": "Crypto Operations", "persona": "crypto_operations", "priority": 1,
-        "weights": {"crypto": 20, "fintech": 14, "support": 8, "english": 10, "remote": 10,
-                    "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "community": {
-        "label": "Web3 Community", "persona": "community", "priority": 1,
-        "weights": {"community": 24, "crypto": 12, "support": 6, "english": 10, "remote": 10,
-                    "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "junior_research": {
-        "label": "Junior Research", "persona": "junior_research", "priority": 1,
-        "weights": {"research": 28, "crypto": 14, "english": 10, "remote": 10, "latam": 8,
-                    "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "trading_entry": {
-        "label": "Crypto Trading (Entry/Junior)", "persona": "trading_entry", "priority": 1,
-        "weights": {"trading": 30, "crypto": 14, "research": 8, "english": 10, "remote": 10,
-                    "latam": 8, "salary": 10, "tools": 4, "seniority": 10, "spanish": 6}},
-    "customer_support": {
-        "label": "Customer Support", "persona": "customer_support", "priority": 1,
-        "weights": {"support": 30, "fintech": 10, "english": 12, "remote": 10, "latam": 8,
-                    "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "operations": {
-        "label": "Operations", "persona": "crypto_operations", "priority": 1,
-        "weights": {"ops": 22, "fintech": 12, "support": 8, "english": 10, "remote": 10,
-                    "latam": 8, "salary": 12, "tools": 6, "seniority": 6, "spanish": 6}},
-    "voice_audio": {
-        "label": "Voice & AI Audio", "persona": "voice_ai", "priority": 2,
-        "weights": {"voice": 32, "english": 12, "spanish": 10, "remote": 10, "latam": 8,
-                    "salary": 12, "seniority": 8, "tools": 4, "support": 4}},
-    "ai_content": {
-        "label": "AI Content / Creative", "persona": "ai_content", "priority": 2,
-        "weights": {"ai_content": 28, "english": 10, "spanish": 8, "remote": 10, "latam": 8,
-                    "salary": 12, "seniority": 8, "tools": 8, "support": 4, "crypto": 4}},
-    "admin_ops": {
-        "label": "Admin / VA Básico", "persona": "admin_ops", "priority": 2,
-        "weights": {"admin": 30, "english": 10, "spanish": 8, "remote": 10, "latam": 8,
-                    "salary": 12, "seniority": 8, "tools": 8, "support": 6}},
-}
-
-# Regla dura: títulos técnicos de ingeniería/desarrollo que NO corresponden
-# al perfil (no defendibles en entrevista). Se marcan IGNORE directo.
-TECH_TITLE_BLOCK = re.compile(
-    r"\b(software|frontend|front-end|backend|back-end|full[- ]?stack|devops|sre|"
-    r"platform|data|machine learning|\bml\b|\bai\b|smart contract|solidity|rust|"
-    r"golang|java|python|react|node|qa|test|ios|android|mobile|security|cloud|"
-    r"embedded|quant|infrastructure|network|php|wordpress|web|blockchain)\b"
-    r".{0,25}\b(engineer|developer|programmer|scientist|architect)\b", re.I)
-
-# Regla dura: senioridad alta sin marca junior -> nunca APPLY
-SENIOR_TITLE = re.compile(
-    r"\b(senior|lead|principal|staff|director|head of|chief)\b", re.I)
-JUNIOR_TITLE = re.compile(
-    r"\b(junior|entry|graduate|trainee|intern|associate)\b", re.I)
-MANAGER_TECH = re.compile(
-    r"\bmanager\b.{0,20}\b(technical|support|operations|team|office|program|"
-    r"project|engineering|department)\b", re.I)
-
-# Regla dura: títulos que requieren un idioma que el candidato NO habla.
-# Si el TÍTULO dice "German Speaking", "French Speaking", etc., la oferta
-# requiere ese idioma aunque la descripción esté en inglés. La bloqueamos
-# porque el candidato no maneja esos idiomas.
-NON_ENGLISH_TITLE_RE = re.compile(
-    r"\b(german|french|italian|portuguese|spanish|italian|polish|"
-    r"dutch|swedish|norwegian|finnish|danish|russian|chinese|japanese|"
-    r"korean|arabic|hindi|hebrew|turkish|polish)\s*-?\s*"
-    r"(speaking|fluent|native|proficient|only|required)\b",
-    re.I)
-
-# Regla dura: títulos de trading con seniority alta o que piden experiencia
-# avanzada -> IGNORE directo. El candidato es entry/junior, no senior trader.
-# Cubre: Senior/Lead/Head/Principal/Chief Trader, "Experienced Trader",
-# "Professional Trader", "Trading Manager/Director/Head of Trading", etc.
-SENIOR_TRADER_TITLE = re.compile(
-    r"\b(senior|lead|head of|principal|chief|experienced|professional|"
-    r"senior level|expert|advanced|seasoned|proven)\b[^,]{0,30}\b(trader|trading)\b|"
-    r"\b(trader|trading)\b[^,]{0,30}\b(senior|lead|head|principal|chief|"
-    r"experienced|professional|manager|director|expert|advanced)\b|"
-    r"\bhead of trading\b|\blead trader\b|\bchief trader\b|"
-    r"\bproprietary trader\b|\bprop trader\b|"
-    r"\b(senior|lead|head)\b[^,]{0,15}\bquant\b", re.I)
-
-# Regla dura de ubicación: solo remoto GLOBAL (para poder aplicar desde Paraguay)
-REMOTE_WORDS = re.compile(
-    r"\b(remote|worldwide|global|anywhere|distributed|work from home|wfh|"
-    r"100% home|work-at-home)\b", re.I)
-LOCATION_SAFE = re.compile(
-    r"\b(worldwide|global|anywhere|latin america|latam|south america|americas)\b", re.I)
-LOCATION_COUNTRY = re.compile(
-    r"\b(united states|usa|u\.s\.|uk|germany|france|spain|italy|netherlands|"
-    r"poland|portugal|greece|cyprus|czech|canada|philippines|singapore|australia|"
-    r"taiwan|pakistan|brazil|mexico|colombia|argentina|chile|peru|uruguay|india|"
-    r"japan|sweden|norway|denmark|finland|ireland|switzerland|austria|belgium|"
-    r"china|south korea|malaysia|indonesia|thailand|vietnam|turkey|israel|dubai|"
-    r"uae|saudi|qatar|europe|emea|asia|australia|singapore)\b", re.I)
-
-
-REQ_HEADER_RE = re.compile(
-    r"\b(requirements?|qualifications?|what you (need|bring)|you (must|should|need) (have|be)|"
-    r"what we (need|require|look for)|key requirements|essential (requirements|criteria)|"
-    r"required qualifications|job requirements)\b\s*:?",
-    re.I)
-REQ_END_RE = re.compile(
-    r"\b(benefits?|compensation|salary|what we offer|perks|about us|how to apply|"
-    r"to apply|apply now|our company|company (info|description)|nice to have|"
-    r"bonus points|perks & benefits)\b",
-    re.I)
-
-
-def _extract_requirements(desc):
-    """Devuelve el texto de la sección Requirements si existe."""
-    if not desc:
-        return ""
-    m = REQ_HEADER_RE.search(desc)
-    if not m:
-        return ""
-    start = m.end()
-    end = REQ_END_RE.search(desc, start)
-    section = desc[start:end.start()] if end else desc[start:start + 1500]
-    return section
-
-
-def _hard_filters(job, title, text, loc):
-    """Aplica reglas duras. Devuelve (nuevo_score_max, band_forced).
-    band_forced: None (normal), 'IGNORE' o 'REVIEW'."""
-    hay = f"{title} {loc} {text[:800]}"
-    req = _extract_requirements(job.get("description") or "")
-    cap = 100
-    # 0) bloquear roles creativos/edición profesionales (no defendibles)
-    if CREATIVE_ROLE_BLOCK.search(title):
-        return 0, "IGNORE"
-    # 1) bloquear títulos de desarrollo/ingeniería
-    if TECH_TITLE_BLOCK.search(title):
-        return 0, "IGNORE"
-    # 1b) bloquear títulos de trading senior/experienced (candidato es entry-level)
-    if SENIOR_TRADER_TITLE.search(title):
-        return 0, "IGNORE"
-    # 1c) bloquear ofertas en idiomas que el candidato NO habla
-    #     (alemán, francés, italiano, portugués). El candidato habla
-    #     inglés y español nativo, cualquier otro idioma es IGNORE.
-    full_desc = job.get("description") or ""
-    if is_unsupported_language(full_desc):
-        return 0, "IGNORE"
-    # 1d) bloquear títulos que requieren un idioma no soportado
-    #     (ej: "German Speaking Customer Service" — el candidato
-    #     no habla alemán aunque la descripción esté en inglés)
-    if NON_ENGLISH_TITLE_RE.search(title):
-        return 0, "IGNORE"
-    # 2) senioridad alta sin junior: máximo REVIEW
-    if SENIOR_TITLE.search(title) and not JUNIOR_TITLE.search(title):
-        cap = min(cap, 65)
-    # 3) cualquier título con "manager": máximo REVIEW (no defendible)
-    if re.search(r"\bmanager\b", title, re.I):
-        cap = min(cap, 65)
-    # 4) no es remoto en absoluto: IGNORE
-    if not REMOTE_WORDS.search(hay):
-        return 0, "IGNORE"
-    # 4b) presencia física obligatoria (onboarding en persona, oficina, relocación)
-    if IN_PERSON_RE.search(text) or IN_PERSON_RE.search(req):
-        return 0, "IGNORE"
-    # 4c) híbrido/presencia parcial (in-office days): EXCLUIDO TOTAL.
-    #     El candidato vive en Paraguay y necesita 100% remoto.
-    if HYBRID_RE.search(text) or HYBRID_RE.search(req):
-        return 0, "IGNORE"
-    # 5) restricción geográfica (ubicación o descripción): IGNORE directo.
-    #    Solo remoto GLOBAL / LATAM / Sudamérica / Paraguay sirve.
-    if _location_restricted(loc, text, title) or _location_restricted("", req, ""):
-        return 0, "IGNORE"
-    # requisitos de horario/ubicación estrictos en requirements
-    if re.search(r"\b(must|required|need to|only) (be|work|live|based) (in|within|during)\b", req, re.I):
-        cap = min(cap, 65)
-    # pago inestable (por proyecto/gig/comisión pura): nunca verde
-    if PER_PROJECT_RE.search(hay):
-        cap = min(cap, 65)
-    # pago por hora: puede ser contrato estable a tiempo completo, pero no APPLY NOW
-    if HOURLY_RE.search(hay):
-        cap = min(cap, 75)
-    return cap, None
-
-
-# países/regiones que NO incluyen Paraguay (no sirven)
-_COUNTRY_RE = re.compile(
-    r"\b(united states|usa|u\.?s\.?a?\.?|uk|united kingdom|england|europe|eu|emea|"
-    r"canada|australia|asia|apac|india|philippines|brazil|mexico|colombia|argentina|chile|"
-    r"peru|uruguay|germany|france|spain|netherlands|poland|portugal|ireland|sweden|norway|"
-    r"denmark|finland|switzerland|austria|belgium|singapore|japan|south korea|malaysia|"
-    r"indonesia|thailand|vietnam|turkey|israel|dubai|uae|saudi|qatar|new zealand|"
-    r"china|hong kong|taiwan)\b", re.I)
-
-# zonas SEGURAS (Paraguay incluido)
-_SAFE_RE = re.compile(
-    r"\b(worldwide|global|globally|anywhere|around the world|all over the world|"
-    r"latin america|latam|south america|central america|americas|"
-    r"ecuador|bolivia|venezuela|panama|guatemala|honduras|nicaragua|el salvador|"
-    r"costa rica|dominican republic|puerto rico|cuba)\b", re.I)
-
-# frases de restricción que suelen ir en la descripción
-_RESTRICT_PATTERNS = [
-    r"\b(must|need to|required to|requires|should|have to) (be )?(based|located|resident|"
-    r"domiciled|physically located) (in|within)\b",
-    r"\bbased (in|within)\b",
-    r"\b(must|need to|required to) be (in|within)\b",
-    r"\b(open|available) (only )?to (candidates|applicants) (based|located )?(in|within)\b",
-    r"\bcandidates (must|need|required) (to )?be (based|located) (in|within)\b",
-    r"\b(work authorization|right to work|eligib\w+ to work|authorized to work|"
-    r"permit to work|visa sponsorship|work permit|visa) (in|within|required|needed|from|of|for|to work)\b",
-    r"\bin possession of a (work permit|visa)\b",
-    r"\b(will|shall) not be considered\b",
-    r"\b(will|shall) not (be )?(considered|eligible|qualif\w+)\b",
-    r"\b(must|need to|required to|have to) (have|hold|possess|obtain) a (work permit|visa|residence|permit)\b",
-    r"\b(must|need to|required to) (be|have) (a|the) (citizen|resident|national|permanent resident) (of|in)\b",
-    r"\b(citizens?|residents?|nationals?) of (the )?(us|usa|uk|canada|australia|germany|france|spain|"
-    r"netherlands|poland|portugal|ireland|sweden|singapore|japan|india|philippines|finland|norway|denmark)\b",
-    r"\b(only|exclusively) (open|available|consider\w*) (to|for)\b.{0,30}\b(candidates|applicants|"
-    r"residents|based|located|citizens|nationals)\b",
-    r"\b(us|usa|uk|eu|europe|canada|australia|germany|france|spain|netherlands|poland|"
-    r"portugal|ireland|sweden|singapore|japan|india|philippines|brazil|mexico|argentina|"
-    r"chile|colombia|peru|uruguay|finland|norway|denmark|austria|belgium|switzerland)\b"
-    r"[^.]{0,40}\b(only|exclusively|required|permit|visa)\b",
-]
-
-
-_NO_TILDES = str.maketrans(
-    {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u", "ñ": "n",
-     "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N"})
-
-
-def _loc_norm(s):
-    return (s or "").translate(_NO_TILDES)
-
-
-def _location_restricted(loc, text, title):
-    """True si la oferta NO se puede tomar desde Paraguay/remoto global.
-    El campo de ubicación manda: si dice un país/región sin remoto global,
-    se descarta aunque la descripción mencione 'global'."""
-    loc = _loc_norm(loc or "")
-    # 0) el título también puede decir "Remote - Canada, UK, Spain..." o "(USA only)"
-    title_norm = _loc_norm(title)
-    if _COUNTRY_RE.search(title_norm) and not _SAFE_RE.search(title_norm):
-        return True
-    # 1) ubicación autoritativa
-    if _COUNTRY_RE.search(loc):
-        return not _SAFE_RE.search(loc)
-    # 2) la descripción puede esconder restricciones (escaneo COMPLETO)
-    hay = f"{_loc_norm(text[:7000])} {title_norm}"
-    for pat in _RESTRICT_PATTERNS:
-        m = re.search(pat, hay, re.I)
-        if m:
-            ctx = hay[m.start():m.end() + 60]
-            if _COUNTRY_RE.search(ctx) and not _SAFE_RE.search(ctx):
-                return True
-    return False
-
-
-BANDS = [
-    (90, "APPLY NOW", "🔥"),
-    (75, "APPLY", "🟢"),
-    (60, "REVIEW", "🟡"),
-    (0, "IGNORE", "⚪"),
-]
-
-
-def _component(kind, title, text, parsed, salary_cfg, job):
-    if kind == "crypto":
-        return _kw_count(text, CRYPTO_KW, title, 3.5, 9)
-    if kind == "support":
-        return _kw_count(text, SUPPORT_KW, title, 3.5, 9)
-    if kind == "community":
-        return _kw_count(text, COMMUNITY_KW, title, 3.5, 8)
-    if kind == "research":
-        return _kw_count(text, RESEARCH_KW, title, 3.5, 9)
-    if kind == "trading":
-        return _kw_count(text, TRADING_KW, title, 3.5, 9)
-    if kind == "fintech":
-        return _kw_count(text, FINTECH_KW, title, 3.5, 8)
-    if kind == "ops":
-        return _kw_count(text, OPS_KW, title, 3.5, 8)
-    if kind == "voice":
-        return _kw_count(text, VOICE_KW, title, 3.5, 9)
-    if kind == "ai_content":
-        return _kw_count(text, AI_CONTENT_KW, title, 3.5, 9)
-    if kind == "admin":
-        return _kw_count(text, ADMIN_KW, title, 3.5, 9)
-    if kind == "tools":
-        return min(1.0, _kw_count(text, TOOLS_KW, title, 1.0, 4))
-    if kind == "english":
-        return 1.0 if is_english(text) else 0.5
-    if kind == "spanish":
-        return 1.0 if SPANISH_RE.search(text) else 0.85
-    if kind == "remote":
-        return 1.0 if "remote" in (job.get("location") or "").lower() or "remote" in text[:600] else 0.4
-    if kind == "latam":
-        return latam_score(job)
-    if kind == "salary":
-        if not parsed:
-            return 0.5
-        lo = parsed["min"]
-        target = salary_cfg.get("target_min", 1300)
-        floor = salary_cfg.get("floor", 1000)
-        return 1.0 if lo >= target else (0.7 if lo >= floor else 0.3)
-    if kind == "seniority":
-        if re.search(r"\b(junior|entry|graduate|trainee|intern|associate)\b", title, re.I):
-            return 1.0
-        if re.search(r"\b(senior|lead|head of|principal|staff|director)\b", title, re.I):
-            return 0.4
-        return 0.8
-    return 0.5
-
-
-def score_offer(job, profile, personas=None, top_n=None):
-    """
-    Puntúa una oferta en todos los carriles. Devuelve:
-      {score, band, emoji, track, track_label, persona, salary_parsed,
-       salary_marker, breakdown[], reasons[], matched[]}
-    """
-    salary_cfg = profile.get("salary", {})
-    title = (job.get("title") or "").lower()
-    text = " ".join([
-        title,
-        " ".join(job.get("tags") or []),
-        (job.get("description") or "")[:7000],
-    ]).lower()
-    parsed = parse_salary(job.get("salary") or "")
-    marker = salary_marker(parsed, salary_cfg)
-
-    best = None
-    for tid, cfg in TRACKS.items():
-        tot_w = sum(cfg["weights"].values())
-        comps = {}
-        total = 0.0
-        for kind, w in cfg["weights"].items():
-            c = _component(kind, title, text, parsed, salary_cfg, job)
-            comps[kind] = c
-            total += w * c
-        score = round(100.0 * total / tot_w)
-        # los tracks secundarios compiten con handicap (nunca roban prioridad)
-        compare = score - (PRIORITY_HANDICAP if cfg.get("priority", 1) == 2 else 0)
-        if best is None or compare > best["compare"]:
-            best = {"track": tid, "score": score, "compare": compare, "comps": comps,
-                    "label": cfg["label"], "persona": cfg["persona"]}
-
-    # reglas duras (bloqueo de roles técnicos, senioridad, ubicación)
-    loc = (job.get("location") or "")
-    cap, forced = _hard_filters(job, title, text, loc)
-    # piso salarial duro: publicado por debajo de $1.000 -> nunca verde
-    if parsed and parsed["min"] < salary_cfg.get("floor", 1000):
-        cap = min(cap, 65)
-    if forced == "IGNORE" or best["score"] > cap:
-        best["score"] = min(best["score"], cap)
-
-    band = "IGNORE"
-    emoji = "⚪"
-    for thr, b, e in BANDS:
-        if best["score"] >= thr:
-            band, emoji = b, e
-            break
-    if forced == "IGNORE":
-        band, emoji = "IGNORE", "⚪"
-
-    # desglose y motivos (solo componentes con peso > 0)
-    weights = TRACKS[best["track"]]["weights"]
-    breakdown = []
-    reasons = []
-    for kind, c in best["comps"].items():
-        w = weights.get(kind, 0)
-        if w <= 0:
-            continue
-        pts = round(w * c)
-        breakdown.append({"criterion": kind, "points": pts, "max": w, "pct": c})
-        if c >= 0.8:
-            reasons.append(f"{kind} ✓")
-        elif c <= 0.35 and kind in ("crypto", "support", "research", "community", "fintech", "ops"):
-            reasons.append(f"{kind} débil")
-    if parsed and parsed["min"] >= salary_cfg.get("target_min", 1300):
-        reasons.append("salario al objetivo")
-    elif parsed:
-        reasons.append(f"salario {marker['marker']}")
-    if BONUS_RE.search(text):
-        reasons.append("bonus/comisiones ✓")
-    if CONTRACT_OK_RE.search(text):
-        reasons.append("contrato estable ✓")
-
-    return {
-        "score": best["score"],
-        "band": band,
-        "emoji": emoji,
-        "track": best["track"],
-        "track_label": best["label"],
-        "persona": best["persona"],
-        "salary_parsed": parsed,
-        "salary_marker": marker,
-        "breakdown": sorted(breakdown, key=lambda x: -x["max"])[:8],
-        "reasons": reasons[:6],
-        "matched": [],
-    }
-
-
-def family_match(job, profile):
-    """Keywords del perfil presentes en la oferta (para CV)."""
-    text = " ".join([job.get("title", ""), " ".join(job.get("tags") or []),
-                     (job.get("description") or "")[:3000]]).lower()
-    kws = set()
-    for group in profile.get("skills", {}).values():
-        for s in group:
-            s = s.strip().lower()
-            if s and re.search(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])", text):
-                kws.add(s)
-    for s in profile.get("extra_keywords", []):
-        s = s.strip().lower()
-        if s and re.search(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])", text):
-            kws.add(s)
-    return sorted(kws)[:14]
-
-
-# ---------------------------------------------------------------------------
-# keywords calientes del mercado (para LinkedIn/CV)
-# ---------------------------------------------------------------------------
+# ============================================================================
+# 1. STOPWORDS / IDIOMAS
+# ============================================================================
 
 STOPWORDS = set("""
 a an and are as at be by for from has have how i in is it its of on or that the this to
@@ -852,47 +29,24 @@ around beyond any all both each few more most other some such only own same than
 can just should now also even many much one two first new old high higher low strong key
 main per via based located location anywhere world worldwide global international office
 headquarters hq homebase business customers customer support services service solutions
-develop developing development manage managing management provide provides providing
-require requires responsible help helps helping look looking find found get gets got give
-gives take takes bring brings come comes grow growing learn learning would could will shall
-may might must do does did done welcome welcoming interested interesting opportunity
-opportunities career careers hiring hire hired recruit recruiting search searching seeking
-immediate start starts starting player dynamic fast paced pace environment environments
-culture collaborative collaboration flexible flexibility competitive benefit perks paid
-vacation holiday holidays equity stocks stock bonus bonuses insurance healthcare medical
-dental vision 401k pension retirement time off pto health wellness wellbeing remote
-remotework distributed stakeholders stakeholder ongoing daytoday day-to-day handson
-hands-on problemsolve problem-solving problemsolving selfstarter self-starter
-detailoriented detail-oriented everyone everything something nothing anything always
-usually often sometimes never ever really quite pretty fairly highly extremely very nice
-cool awesome amazing fantastic incredible outstanding exceptional remarkable build builds
-built building people lead leaded partner partners mission technology scale com url und
-every success enterprise end different level levels clients client best http https www
-drive not products businesses impact future real financial project large multiple various
-following especially particularly additionally moreover furthermore however therefore
-somos empresa puesto cargo remoto trabajo oferta vacante aplica aplicar requisitos
-experiencia años habilidades equipo persona personas buscar buscamos busco necesitamos
-salario ingles español idioma ventaja deseable excluyente jornada tiempo completo el la
-los las de del para con sin por que se su sus un una al lo en y o a e u como cómo también
-más menos entre sobre bajo durante después antes luego hasta desde porque cual cuales
-quien quienes ser estar haber tener hacer puede pueden podrá podría deben debe vení veni
-sumate sumar sumamos crecer creciendo desarrollar desarrollo gestión gestionar liderar
-líderes nuestro nuestra nuestros nuestras tu tus mi mis
 """.split())
 
 WORD_RE = re.compile(r"[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]{3,}")
 
 
 def tokenize(text):
+    """Tokeniza un texto, quita stopwords, devuelve lista en minúsculas."""
     return [w for w in WORD_RE.findall((text or "").lower()) if w not in STOPWORDS]
 
 
 def hot_keywords(jobs, top=40):
     counter = Counter()
     for j in jobs:
-        counter.update(tokenize(" ".join([j.get("title") or "",
-                                          " ".join(j.get("tags") or []),
-                                          (j.get("description") or "")[:1200]])))
+        counter.update(tokenize(" ".join([
+            j.get("title") or "",
+            " ".join(j.get("tags") or []),
+            (j.get("description") or "")[:1200],
+        ])))
     return [w for w, _ in counter.most_common(top)]
 
 
@@ -912,3 +66,606 @@ def build_keywords(profile):
         if len(w) > 2:
             kw.add(w)
     return sorted(kw)
+
+
+# ============================================================================
+# 2. LÉXICO DE ROLES (categorías de ofertas)
+# ============================================================================
+
+# Roles entry-level que el candidato PUEDE defender.
+INCLUDE_ROLES = {
+    "support", "help desk", "helpdesk", "customer service", "customer care",
+    "customer success", "client support", "client services", "user support",
+    "technical support", "tech support", "live chat", "chat support",
+    "community manager", "community moderator", "community operations",
+    "moderator", "moderation", "ambassador", "discord", "telegram",
+    "operations", "ops", "coordinator", "operations associate",
+    "research", "analyst", "intelligence", "due diligence",
+    "trader", "trading", "trading assistant",
+    "kyc", "aml", "compliance", "risk", "fraud", "onboarding", "trust",
+    "content", "writer", "copywriter", "editor", "documentation",
+    "assistant", "associate", "virtual assistant",
+    "listings", "curation", "reviewer", "evaluator", "annotator", "labeler",
+    "data entry", "admin", "back office",
+    "voice", "narration", "audio", "transcription", "transcriber",
+    "qa", "quality assurance", "tester", "ai trainer", "ai tutor",
+    "data annotator", "prompt", "rater", "evaluator",
+    "social media", "growth", "implementation", "specialist",
+    "payment operations", "support operations", "customer operations",
+    "inbound sales", "account executive", "business development",
+    "client onboarding", "user onboarding", "implementation specialist",
+    "product support", "help center", "ticketing",
+}
+
+# Palabras que, combinadas con otras, indican un rol INADECUADO.
+EXCLUDE_TITLE_TOKENS = {
+    "senior", "lead", "principal", "head of", "director", "chief", "vp ",
+    "vice president", "manager",  # sin junior al lado
+    "engineer", "developer", "programmer", "scientist", "architect",
+    "outbound", "cold call", "appointment setter", "telemarketing",
+}
+
+# Junior/entry: anula el exclude.
+JUNIOR_TOKENS = {"junior", "entry", "entry-level", "graduate", "trainee", "intern"}
+
+# Títulos que el candidato NO puede defender (ignoran ofertas, sin importar keywords).
+TECH_TITLE_BLOCK = re.compile(
+    r"\b(engineer|developer|programmer|scientist|architect|devops|sre|"
+    r"development\s+(talent|engineer|manager|lead|architect))\b", re.I)
+
+# Idiomas que el candidato NO habla.
+UNSUPPORTED_LANGUAGES = {"german", "french", "italian", "portuguese"}
+
+
+# ============================================================================
+# 3. FILTROS DUROS
+# ============================================================================
+
+# Roles creativos / edición profesional: no defendibles.
+CREATIVE_TITLE = re.compile(
+    r"\b(video\s*editor|video\s*editing|motion\s*designer|motion\s*graphics|"
+    r"ux\s*designer|ui\s*designer|product\s*designer|brand\s*designer|"
+    r"illustrator|3d\s*artist|3d\s*designer|sound\s*designer|audio\s*engineer|"
+    r"video\s*producer|video\s*production|video\s*post[- ]production|"
+    r"graphic\s*designer|graphic\s*design|"
+    r"photo\s*editor|photo\s*retoucher|"
+    r"character\s*(concept\s*)?artist|concept\s*artist|"
+    r"2d\s*artist|3d\s*modeler|3d\s*animator|"
+    r"web\s*designer|designer|"
+    r"interior\s*designer|revit|"
+    r"fashion\s*designer|"
+    r"music\s*producer|music\s*composer|"
+    r"\bcad\b|cad\s*designer|cad\s*modeler)\b", re.I)
+
+# Modalidad phone-heavy: bajar a REVIEW.
+PHONE_HEAVY_RE = re.compile(
+    r"\b(phone\s*support|phone\s*customer|phone\s*based|call\s*center|"
+    r"call\s*centre|inbound\s*calls|outbound\s*calls|voice\s*support|"
+    r"voice\s*chat\s*support|high\s*volume\s*calls|customer\s*phone|"
+    r"telephony|answer(ing)?\s*(incoming|outgoing)\s*calls|"
+    r"handle\s*(incoming|outgoing)\s*calls|"
+    r"make\s*(outgoing|outbound)\s*calls|"
+    r"cold\s*call|talk\s*to\s*customers?\s*over\s*the\s*phone|"
+    r"provide\s*phone\s*support|appointment\s*setter|"
+    r"appointment\s*setting|outbound\s*(sales|caller|agent|rep)|"
+    r"telemarket(er|ing)|door[- ]to[- ]door|"
+    r"dial(er|ing)\s*(for|to)|business\s*development\s*outbound|"
+    r"\bbdr\s*outbound|\bsdr\s*outbound|"
+    r"lead\s*generation\s*(outbound|cold)|outbound\s*prospecting|"
+    r"high\s*volume\s*outbound)\b", re.I)
+
+# Modalidad async / chat / email: NO penalizar.
+ASYNC_SUPPORT_RE = re.compile(
+    r"\b(chat\s*support|live\s*chat|email\s*support|"
+    r"slack|discord|telegram|intercom|zendesk|freshdesk|"
+    r"help\s*center|knowledge\s*base|ticketing|ticket\s*system|"
+    r"help\s*desk|helpdesk|asynchronous|async|"
+    r"text\s*based|written\s*support|non[- ]?voice|chat[- ]?first)\b", re.I)
+
+# Años de experiencia requeridos: si pide 3+ años y NO es junior -> IGNORE.
+YEARS_REQUIRED_RE = re.compile(
+    r"\b([3-9]\+?\s*years?|[1-9]\d\+?\s*years?|"
+    r"3[-–][5-9]\s*years?|4[-–][6-9]\s*years?|5[-–][7-9]\s*years?|"
+    r"minimum\s+[3-9]\s*years?|at\s+least\s+[3-9]\s*years?|"
+    r"extensive\s+(experience|background|track\s*record)|"
+    r"proven\s*track\s*record|seasoned\s+(professional|candidate|trader))\b",
+    re.I)
+
+# Senioridad alta sin marca junior -> IGNORE.
+SENIOR_TITLE_RE = re.compile(
+    r"\b(senior|lead|principal|director|head\s+of|chief|vice\s*president|\bvp\b)\b", re.I)
+
+# Ubicación: solo remoto global / LATAM / Paraguay-friendly.
+COUNTRY_BLOCKED_RE = re.compile(
+    r"\b(united\s+states|\busa\b|u\.?s\.?a?\.?|united\s+kingdom|\buk\b|"
+    r"germany|france|spain|italy|netherlands|poland|portugal|"
+    r"greece|cyprus|czech|canada|philippines|singapore|australia|"
+    r"taiwan|pakistan|india|japan|sweden|norway|denmark|finland|"
+    r"ireland|switzerland|austria|belgium|china|south\s+korea|"
+    r"malaysia|indonesia|thailand|vietnam|turkey|israel|dubai|uae|"
+    r"saudi|qatar|europe|emea|asia)\b", re.I)
+
+LOCATION_SAFE_RE = re.compile(
+    r"\b(worldwide|global|globally|anywhere|around\s+the\s+world|"
+    r"latin\s+america|\blatam\b|south\s+america|central\s+america|"
+    r"americas|ecuador|bolivia|venezuela|panama|guatemala|"
+    r"honduras|nicaragua|el\s+salvador|costa\s+rica|"
+    r"dominican\s+republic|puerto\s+rico|cuba|paraguay)\b", re.I)
+
+# Presencia física obligatoria.
+IN_PERSON_RE = re.compile(
+    r"\b(onboard(ing)?\s+(in\s+person|on[- ]site|at\s+our\s+office)|"
+    r"in[- ]person\s+onboarding|on[- ]site\s+onboarding|"
+    r"must\s+(attend|complete|do)\s+onboarding|"
+    r"onboarding\s+(is|will\s+be)\s+(in\s+person|on[- ]site)|"
+    r"physical\s+office|our\s+offices\s+(in|are)|"
+    r"relocat\w*\s+required|must\s+relocat\w*|"
+    r"work\s+from\s+(the\s+)?office|"
+    r"office\s+(attendance|presence|presencial)|"
+    r"in[- ]office\s+(requirement|days|attendance)|"
+    r"come\s+into\s+the\s+office)\b", re.I)
+
+# Híbrido.
+HYBRID_RE = re.compile(
+    r"\bhybrid\b|on[- ]site\s+(days|requirement)|"
+    r"in[- ]office\s+(days|requirement)|office[- ]based|"
+    r"presencial\s+(days|requirement)|"
+    r"work\s+from\s+office\s+(days|some)", re.I)
+
+# Pago por hora o por proyecto.
+PER_PROJECT_RE = re.compile(
+    r"\b(per\s+project|project[- ]based|per\s+gig|one[- ]time|"
+    r"per\s+task|piece\s+work|100%\s*commission|commission[- ]only|"
+    r"pay[- ]per|per\s+assignment|short[- ]term\s+gig)\b", re.I)
+
+HOURLY_RE = re.compile(r"\b(per\s+hour|hourly|per\s+hr|/hr\b|by\s+the\s+hour)\b", re.I)
+
+# Empresa explícitamente bloqueada.
+COMPANY_BLOCKLIST = {"stripe", "mercury", "joby", "zapiet"}
+COMPANY_BLOCKLIST_RE = re.compile(
+    r"\b(" + "|".join(re.escape(c) for c in COMPANY_BLOCKLIST) + r")\b", re.I)
+
+# Remote world.
+REMOTE_RE = re.compile(
+    r"\b(remote|worldwide|global|anywhere|distributed|work\s+from\s+home|"
+    r"wfh|100%\s*home|work[- ]at[- ]home)\b", re.I)
+
+
+# ============================================================================
+# 4. FILTRO DE IDIOMA
+# ============================================================================
+
+GERMAN_MARKERS = {"und", "der", "die", "das", "wir", "sie", "ihnen", "ihre",
+                  "kunden", "aufgaben", "anforderungen", "kenntnisse",
+                  "erfahrung", "stelle", "unternehmen", "außerdem", "möchten"}
+FRENCH_MARKERS = {"les", "des", "une", "nous", "vous", "être", "avoir",
+                  "poste", "entreprise", "expérience", "candidature",
+                  "salaire", "compétences", "désirons", "également"}
+ITALIAN_MARKERS = {"della", "delle", "questo", "questa", "essere", "avere",
+                   "lavoro", "azienda", "italiano", "inglese", "stage",
+                   "competenze", "ricerchiamo"}
+PORTUGUESE_MARKERS = {"não", "são", "está", "também", "ainda", "muito",
+                      "trabalho", "empresa", "experiência", "salário",
+                      "vaga", "equipe", "competências", "procuramos"}
+SPANISH_MARKERS = {"el", "la", "los", "las", "de", "del", "para", "con",
+                   "por", "que", "como", "trabajo", "empresa", "experiencia",
+                   "requisitos", "salario", "años", "habilidades", "equipo",
+                   "remoto", "puesto", "candidato", "aplicar"}
+
+LANG_MARKERS = {
+    "spanish": SPANISH_MARKERS,
+    "german": GERMAN_MARKERS,
+    "french": FRENCH_MARKERS,
+    "italian": ITALIAN_MARKERS,
+    "portuguese": PORTUGUESE_MARKERS,
+}
+
+
+def detect_language(desc):
+    """Detecta idioma principal. Devuelve string ('spanish', 'english', 'german', ...)."""
+    low = (desc or "").lower()
+    words = re.findall(r"[a-z]{2,}", low)
+    if not words:
+        return "english"
+    counts = {lang: sum(1 for w in words if w in markers)
+              for lang, markers in LANG_MARKERS.items()}
+    sorted_langs = sorted(counts.items(), key=lambda x: -x[1])
+    lang, score = sorted_langs[0]
+    second = sorted_langs[1][1]
+    if (score >= 8
+        and score / len(words) >= 0.03
+        and score >= second * 2
+        and lang in UNSUPPORTED_LANGUAGES):
+        return lang
+    return "english"
+
+
+# ============================================================================
+# 5. SALARIO
+# ============================================================================
+
+def parse_salary(text):
+    """Convierte texto de salario a USD/mes. Devuelve dict o None."""
+    if not text or not str(text).strip():
+        return None
+    t = str(text).lower()
+    per_hour = bool(re.search(r"per\s*hour|/h\b|hourly|\bhr\b", t))
+    per_year = bool(re.search(r"per\s*(year|annum)|/y\b|/yr\b|annual|yearly", t))
+    vals = []
+    for n in re.findall(r"\d[\d.,]*", t):
+        n2 = n.replace(",", "")
+        if "." in n2:
+            a, b = n2.split(".", 1)
+            n2 = a + b if len(b) == 3 else a + "." + b[:2]
+        try:
+            vals.append(float(n2))
+        except ValueError:
+            pass
+    if not vals:
+        return None
+    lo, hi = min(vals), max(vals)
+    if per_hour:
+        lo, hi = lo * 160, hi * 160
+    elif per_year or lo > 20000:
+        lo, hi = lo / 12, hi / 12
+    return {"min": round(lo), "max": round(hi), "raw": str(text)[:70]}
+
+
+def salary_marker(parsed, floor=1000, target=1300):
+    """🔴 por debajo · 🟡 aceptable · 🟢 cumple objetivo · ⚪ sin dato."""
+    if not parsed:
+        return {"marker": "⚪", "label": "sin salario publicado", "ok": None}
+    lo = parsed["min"]
+    if lo >= target:
+        return {"marker": "🟢", "label": f"cumple objetivo (${lo:,}/mes)", "ok": True}
+    if lo >= floor:
+        return {"marker": "🟡", "label": f"aceptable (${lo:,}/mes)", "ok": True}
+    return {"marker": "🔴", "label": f"bajo mínimo (${lo:,}/mes)", "ok": False}
+
+
+# ============================================================================
+# 6. KEYWORDS DE SCORING
+# ============================================================================
+
+CRYPTO_KW = ["crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth",
+             "cardano", "solana", "blockchain", "web3", "defi", "nft",
+             "wallet", "wallets", "ledger", "metamask", "phantom",
+             "staking", "tokenomics", "airdrop", "kyc", "liquidity",
+             "binance", "kraken", "kucoin", "bybit", "okx", "coinbase",
+             "smart contract", "stablecoin", "blockchain.com"]
+
+AI_KW = ["ai trainer", "ai tutor", "ai rater", "ai ", "artificial intelligence",
+         "machine learning", " llm", "gpt", "chatgpt", "claude",
+         "prompt engineer", "generative ai", "data annotat",
+         "training data", "neural network", "data label"]
+
+FINTECH_KW = ["fintech", "payment", "remittance", "banking", "swift",
+              "aml", "fraud", "chargeback", "reconciliation", "compliance"]
+
+CUSTOMER_KW = ["customer support", "customer service", "customer care",
+               "customer success", "client support", "client services",
+               "user support", "technical support", "tech support",
+               "help desk", "helpdesk", "live chat", "chat support",
+               "zendesk", "intercom", "freshdesk", "ticketing"]
+
+OPS_KW = ["operations", " ops ", "coordinator", "workflow",
+          "process", "onboarding", "offboarding", "back office"]
+
+COMMUNITY_KW = ["community manager", "community moderator", "discord",
+                "telegram", "moderation", "moderator", "ambassador",
+                "engagement", "evangelist", "user education"]
+
+TRADING_KW = ["trader", "trading", "trade", "market analysis",
+              "technical analysis", "chart", "indicator", "rsi", "macd",
+              "support", "resistance", "trend", "pattern", "volume",
+              "market order", "limit order", "stop loss", "take profit",
+              "leverage", "long", "short", "spot", "perp", "perpetual",
+              "futures", "options", "order book", "liquidity", "spread",
+              "position size", "position sizing", "risk management",
+              "price action", "tradingview", "bybit", "okx", "binance"]
+
+BILINGUAL_KW = ["spanish", "español", "espanol", "bilingual", "bilingual ",
+                "english and spanish", "english / spanish", "english/spanish",
+                "spanish and english", "spanish / english", "spanish/english"]
+
+
+def _kw_hits(text, kws):
+    """Cuenta cuántas keywords (case-insensitive, word-boundary) aparecen en text."""
+    text = (text or "").lower()
+    n = 0
+    for k in kws:
+        k_low = k.lower().strip()
+        if not k_low:
+            continue
+        if re.search(r"(?<![a-z0-9])" + re.escape(k_low) + r"(?![a-z0-9])", text):
+            n += 1
+    return n
+
+
+# ============================================================================
+# 7. PIPELINE PRINCIPAL
+# ============================================================================
+
+def _flatten_tags(raw):
+    """Aplana tags (puede contener dicts o listas anidadas) a lista de str."""
+    out = []
+    for t in (raw or []):
+        if isinstance(t, str):
+            out.append(t)
+        elif isinstance(t, dict):
+            out.append(str(t.get("name", "")))
+        elif isinstance(t, list):
+            for sub in t:
+                if isinstance(sub, str):
+                    out.append(sub)
+                elif isinstance(sub, dict):
+                    out.append(str(sub.get("name", "")))
+    return out
+
+
+def hard_filters(job):
+    """Aplica filtros duros. Devuelve (cap_max, forced_band) o ('IGNORE', 'IGNORE')."""
+    title = (job.get("title") or "").lower()
+    desc = (job.get("description") or "")
+    if not isinstance(desc, str):
+        desc = ""
+    flat_tags = _flatten_tags(job.get("tags"))
+    text = (title + " " + " ".join(flat_tags) + " " + desc[:7000]).lower()
+    loc = (job.get("location") or "")
+    company = (job.get("company") or "")
+
+    if CREATIVE_TITLE.search(title):
+        return 0, "IGNORE"
+    if TECH_TITLE_BLOCK.search(title):
+        return 0, "IGNORE"
+    if detect_language(desc) in UNSUPPORTED_LANGUAGES:
+        return 0, "IGNORE"
+
+    first_para = desc[:1200]
+    if (YEARS_REQUIRED_RE.search(title) or YEARS_REQUIRED_RE.search(first_para)):
+        if not re.search(r"\b(junior|entry|graduate|trainee|intern)\b", title, re.I):
+            return 0, "IGNORE"
+
+    company_blob = f"{company} {title} {text[:500]}"
+    if COMPANY_BLOCKLIST_RE.search(company_blob):
+        return 0, "IGNORE"
+
+    if SENIOR_TITLE_RE.search(title) and not re.search(
+        r"\b(junior|entry|graduate|trainee|intern)\b", title, re.I):
+        return 0, "IGNORE"
+
+    if re.search(r"\bmanager\b", title, re.I):
+        return 0, "IGNORE"
+
+    if IN_PERSON_RE.search(text):
+        return 0, "IGNORE"
+
+    if HYBRID_RE.search(text):
+        return 0, "IGNORE"
+
+    if _location_restricted(loc, text, title):
+        return 0, "IGNORE"
+
+    cap = 100
+    if PHONE_HEAVY_RE.search(title) or PHONE_HEAVY_RE.search(text[:3000]):
+        if not ASYNC_SUPPORT_RE.search(text[:3000]):
+            cap = min(cap, 65)
+    if PER_PROJECT_RE.search(text):
+        cap = min(cap, 65)
+    if HOURLY_RE.search(text):
+        cap = min(cap, 75)
+
+    return cap, None
+
+
+def _location_restricted(loc, text, title):
+    """True si la oferta NO se puede tomar desde Paraguay/remoto global."""
+    title_norm = _loc_norm(title)
+    loc_norm = _loc_norm(loc)
+
+    if COUNTRY_BLOCKED_RE.search(title_norm) and not LOCATION_SAFE_RE.search(title_norm):
+        return True
+    if COUNTRY_BLOCKED_RE.search(loc_norm) and not LOCATION_SAFE_RE.search(loc_norm):
+        return True
+    if re.search(r"\b(must|required|need\s+to)\s+be\s+(based|located|live)\s+in\b",
+                 text, re.I):
+        return True
+    return False
+
+
+_NO_TILDES = str.maketrans({
+    "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u", "ñ": "n",
+    "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N",
+})
+
+
+def _loc_norm(s):
+    return (s or "").translate(_NO_TILDES)
+
+
+# ============================================================================
+# 8. SCORING
+# ============================================================================
+
+def _domain_score(title, text):
+    """Solo se usa para ordenar prioridad, no para filtrar."""
+    title_crypto = _kw_hits(title, CRYPTO_KW) + _kw_hits(title, AI_KW) + _kw_hits(title, FINTECH_KW)
+    if title_crypto >= 1:
+        return 1.0
+    return 0.85
+
+
+def _category_score(title, text):
+    """Puntúa según categorías de rol encontradas en el TÍTULO."""
+    title_cats = [
+        _kw_hits(title, CUSTOMER_KW),
+        _kw_hits(title, OPS_KW),
+        _kw_hits(title, COMMUNITY_KW),
+        _kw_hits(title, TRADING_KW),
+        _kw_hits(title, AI_KW),
+        _kw_hits(title, CRYPTO_KW),
+    ]
+    title_max = max(title_cats) if title_cats else 0
+    if title_max >= 1:
+        return min(1.0, 0.6 + 0.4 * min(title_max, 3) / 3)
+    return 0.2
+
+
+def _bilingual_bonus(text):
+    return 1.0 if _kw_hits(text, BILINGUAL_KW) > 0 else 0.0
+
+
+def _remote_score(job, text):
+    loc = (job.get("location") or "").lower()
+    if "remote" in loc or REMOTE_RE.search(text[:600]):
+        return 1.0
+    return 0.3
+
+
+def _salary_score(parsed, floor, target):
+    if not parsed:
+        return 0.5
+    lo = parsed["min"]
+    if lo >= target:
+        return 1.0
+    if lo >= floor:
+        return 0.7
+    return 0.3
+
+
+def _seniority_score(title):
+    if re.search(r"\b(junior|entry|graduate|trainee|intern)\b", title, re.I):
+        return 1.0
+    if re.search(r"\b(senior|lead|principal|head|director|chief)\b", title, re.I):
+        return 0.3
+    return 0.7
+
+
+def _english_score(text):
+    if detect_language(text) == "spanish":
+        return 0.85
+    return 1.0
+
+
+WEIGHTS = {
+    "domain": 20,
+    "category": 25,
+    "bilingual": 5,
+    "remote": 15,
+    "salary": 15,
+    "seniority": 10,
+    "english": 10,
+}
+
+
+def score_offer(job, profile):
+    """Puntúa una oferta. Devuelve dict con score, band, emoji, etc."""
+    salary_cfg = profile.get("salary", {})
+    floor = salary_cfg.get("floor", 1000)
+    target = salary_cfg.get("target_min", 1300)
+
+    title = (job.get("title") or "")
+    title_low = title.lower()
+    desc = (job.get("description") or "")
+    flat_tags = _flatten_tags(job.get("tags"))
+    text = (title_low + " " + " ".join(flat_tags) + " " + (desc if isinstance(desc, str) else "")[:7000]).lower()
+
+    cap, forced = hard_filters(job)
+    if forced == "IGNORE":
+        return {
+            "score": 0,
+            "band": "IGNORE",
+            "emoji": "⚪",
+            "track": None,
+            "salary_parsed": None,
+            "salary_marker": {"marker": "⚪", "label": "filtrada", "ok": None},
+            "components": {},
+            "reasons": ["filtrada por reglas duras"],
+        }
+
+    parsed = parse_salary(job.get("salary") or "")
+    components = {
+        "domain": _domain_score(title_low, text),
+        "category": _category_score(title_low, text),
+        "bilingual": _bilingual_bonus(text),
+        "remote": _remote_score(job, text),
+        "salary": _salary_score(parsed, floor, target),
+        "seniority": _seniority_score(title_low),
+        "english": _english_score(desc),
+    }
+
+    raw = sum(WEIGHTS[k] * c for k, c in components.items())
+    score = round(raw)
+    score = min(score, cap)
+
+    if parsed and parsed["min"] < floor:
+        score = min(score, 65)
+
+    if score >= 90:
+        band, emoji = "APPLY NOW", "🔥"
+    elif score >= 75:
+        band, emoji = "APPLY", "🟢"
+    elif score >= 60:
+        band, emoji = "REVIEW", "🟡"
+    else:
+        band, emoji = "IGNORE", "⚪"
+
+    reasons = []
+    if components["category"] >= 0.75:
+        reasons.append("rol entry defendible")
+    if components["domain"] >= 0.95:
+        reasons.append("dominio crypto/AI/fintech")
+    if components["bilingual"] >= 1.0:
+        reasons.append("bilingüe ✓")
+    if components["remote"] >= 1.0:
+        reasons.append("remoto ✓")
+    if parsed and parsed["min"] >= target:
+        reasons.append("salario al objetivo")
+    elif parsed:
+        marker = salary_marker(parsed, floor, target)
+        reasons.append(f"salario {marker['marker']}")
+    if components["seniority"] >= 1.0:
+        reasons.append("junior/entry ✓")
+    elif components["seniority"] <= 0.4:
+        reasons.append("senior (no ideal)")
+
+    return {
+        "score": score,
+        "band": band,
+        "emoji": emoji,
+        "track": _track_from_components(components),
+        "salary_parsed": parsed,
+        "salary_marker": salary_marker(parsed, floor, target),
+        "components": components,
+        "reasons": reasons,
+    }
+
+
+def _track_from_components(components):
+    if components.get("domain", 0) >= 0.95:
+        return "crypto/AI/fintech"
+    return "general"
+
+
+# ============================================================================
+# 9. COMPATIBILIDAD
+# ============================================================================
+
+def family_match(job, profile):
+    """Devuelve keywords del perfil que aparecen en la oferta (max 14)."""
+    text = " ".join([
+        job.get("title", ""),
+        " ".join(job.get("tags") or []),
+        (job.get("description") or "")[:3000],
+    ]).lower()
+    kws = set()
+    for group in profile.get("skills", {}).values():
+        for s in group:
+            s = s.strip().lower()
+            if s and re.search(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])", text):
+                kws.add(s)
+    for s in profile.get("extra_keywords", []):
+        s = s.strip().lower()
+        if s and re.search(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])", text):
+            kws.add(s)
+    return sorted(kws)[:14]
