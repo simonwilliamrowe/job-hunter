@@ -1,16 +1,5 @@
 [
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-it-support-specialist",
-  "title": "IT Support Specialist",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/it-support-specialist",
-  "description": "",
-  "location": "",
-  "salary": "30 - 55 USD hourly",
-  "tags": [],
-  "source": ""
- },
- {
   "id": "wwr-merchantsupportspecialistzapiet",
   "title": "Merchant Support Specialist",
   "company": "Zapiet",
@@ -40,17 +29,6 @@
   "description": "",
   "location": "",
   "salary": "",
-  "tags": [],
-  "source": ""
- },
- {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-content-editor-9342871296",
-  "title": "Content Editor",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/content-editor-9342871296",
-  "description": "",
-  "location": "",
-  "salary": "annual",
   "tags": [],
   "source": ""
  },
@@ -88,13 +66,13 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-business-document-expert-excel-powerpoint-word-5106304340",
-  "title": "Business Document Expert (Excel, PowerPoint, Word)",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/business-document-expert-excel-powerpoint-word-5106304340",
+  "id": "him-https-himalayas-app-companies-smartland-jobs-virtual-assistant-for-various-tasks",
+  "title": "Virtual Assistant for various tasks",
+  "company": "Smartland",
+  "url": "https://himalayas.app/companies/smartland/jobs/virtual-assistant-for-various-tasks",
   "description": "",
   "location": "",
-  "salary": "35 - 50 USD hourly",
+  "salary": "weekly",
   "tags": [],
   "source": ""
  },
@@ -103,17 +81,6 @@
   "title": "Mac MSP Help Desk Guru (work from home)",
   "company": "Ignition, Inc.",
   "url": "https://weworkremotely.com/remote-jobs/ignition-inc-mac-msp-help-desk-guru-work-from-home",
-  "description": "",
-  "location": "",
-  "salary": "",
-  "tags": [],
-  "source": ""
- },
- {
-  "id": "wwr-itmaintenanceandsupportexpertdigitalipafreelancepricewaterhousecoopers",
-  "title": "IT Maintenance and Support Expert | Digital&IPA (freelance)",
-  "company": "PricewaterhouseCoopers",
-  "url": "https://weworkremotely.com/remote-jobs/pricewaterhousecoopers-it-maintenance-and-support-expert-digital-ipa-freelance",
   "description": "",
   "location": "",
   "salary": "",
@@ -132,10 +99,10 @@
   "source": ""
  },
  {
-  "id": "wwr-associateerpoperationssapbusinessoneharneysonsfineteas",
-  "title": "Associate – ERP Operations (SAP Business One)",
-  "company": "Harney & Sons Fine Teas",
-  "url": "https://weworkremotely.com/remote-jobs/harney-sons-fine-teas-associate-erp-operations-sap-business-one",
+  "id": "arn-freelance-creative-content-writer-slovakian-sk-berlin-398171",
+  "title": "Freelance Creative Content Writer (f/m/x) - Slovakian SK",
+  "company": "homify GmbH & Co. KG",
+  "url": "https://www.arbeitnow.com/jobs/companies/homify-gmbh-co-kg/freelance-creative-content-writer-slovakian-sk-berlin-398171",
   "description": "",
   "location": "",
   "salary": "",
@@ -176,6 +143,17 @@
   "source": ""
  },
  {
+  "id": "him-https-himalayas-app-companies-vizx-global-jobs-executive-assistant",
+  "title": "Executive Assistant",
+  "company": "VizX Global",
+  "url": "https://himalayas.app/companies/vizx-global/jobs/executive-assistant",
+  "description": "",
+  "location": "",
+  "salary": "hourly",
+  "tags": [],
+  "source": ""
+ },
+ {
   "id": "wwr-associateobservabilityarchitectestremotegrafanalabs",
   "title": "Associate Observability Architect | EST | Remote",
   "company": "Grafana Labs",
@@ -198,21 +176,43 @@
   "source": ""
  },
  {
-  "id": "him-https-himalayas-app-companies-micro1-jobs-enterprise-ai-workflow-expert",
-  "title": "Enterprise AI Workflow Expert",
-  "company": "micro1",
-  "url": "https://himalayas.app/companies/micro1/jobs/enterprise-ai-workflow-expert",
-  "description": "",
-  "location": "",
-  "salary": "hourly",
-  "tags": [],
-  "source": ""
- },
- {
   "id": "wwr-forwarddeployedengineercomplianceofficeofthectocoinbase",
   "title": "Forward Deployed Engineer, Compliance [Office of the CTO]",
   "company": "Coinbase",
   "url": "https://weworkremotely.com/remote-jobs/coinbase-forward-deployed-engineer-compliance-office-of-the-cto",
+  "description": "",
+  "location": "",
+  "salary": "",
+  "tags": [],
+  "source": ""
+ },
+ {
+  "id": "wwr-consultancyforthedesignandproductionoffouranimatedvideosshowcasingsuncasasachievementsandinspiringyouthengagementinsustainingprojectresultsiisd",
+  "title": "Consultancy for the Design and Production of Four Animated Videos Showcasing SUNCASA’s Achievements and Inspiring Youth Engagement in Sustaining Project Results",
+  "company": "IISD",
+  "url": "https://weworkremotely.com/remote-jobs/iisd-consultancy-for-the-design-and-production-of-four-animated-videos-showcasing-suncasa-s-achievements-and",
+  "description": "",
+  "location": "",
+  "salary": "",
+  "tags": [],
+  "source": ""
+ },
+ {
+  "id": "jcy-149201",
+  "title": "Sales Support Manager, Customer Success",
+  "company": "CommandLink",
+  "url": "https://jobicy.com/jobs/149201-sales-support-manager-customer-success",
+  "description": "",
+  "location": "",
+  "salary": "",
+  "tags": [],
+  "source": ""
+ },
+ {
+  "id": "jcy-149211",
+  "title": "Manager, Customer Support - LATAM",
+  "company": "Cloudbeds",
+  "url": "https://jobicy.com/jobs/149211-manager-customer-support-latam",
   "description": "",
   "location": "",
   "salary": "",
